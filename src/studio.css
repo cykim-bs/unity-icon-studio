@@ -548,3 +548,41 @@ dl.details dd {
 .body-empty p {
   margin: 0;
 }
+
+/* ---- capture preview (right column) */
+.capture-preview {
+  margin: 0 0 12px;
+  aspect-ratio: 1;
+  max-width: 320px;
+  border-radius: 10px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  background-color: var(--surface-2, rgba(127, 127, 127, 0.08));
+  background-image: conic-gradient(rgba(127, 127, 127, 0.14) 25%, transparent 0 50%, rgba(127, 127, 127, 0.14) 0 75%, transparent 0);
+  background-size: 16px 16px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.capture-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.capture-preview figcaption {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+}
+.capture-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 6px;
+  margin-top: 10px;
+}
+.capture-strip img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.08);
+}

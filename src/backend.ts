@@ -7,7 +7,8 @@
  * Preview query (browser only): ?sample=1 ?lang=ko|en ?theme=system|light|dark ?nav=projects|runs|packs|closed
  * ?body=hidden ?frame=<width>x<height>
  */
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
+import type { CaptureEvent, CaptureReport } from "./types";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const inTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
@@ -132,6 +133,8 @@ async function preview(cmd: string, args?: Record<string, unknown>): Promise<unk
       return PREVIEW_PACKS;
     case "hub_projects":
       return [];
+    case "recovery_status":
+      return [];
     case "prefab_override":
       return args?.patch ?? {};
     case "settings_get":
@@ -155,6 +158,57 @@ async function preview(cmd: string, args?: Record<string, unknown>): Promise<unk
     default:
       return null;
   }
+}
+
+/** A plain picture for the preview's made-up captures (no game art). */
+function previewPicture(seed: number): string {
+  const hue = (seed * 47) % 360;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path d="M48 120 L128 56 L208 120 V208 H48 Z" ` +
+    `fill="hsl(${hue} 60% 62%)" stroke="hsl(${hue} 40% 30%)" stroke-width="6"/><rect x="108" y="150" width="40" height="58" ` +
+    `fill="hsl(${(hue + 180) % 360} 50% 55%)"/></svg>`;
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
+}
+
+async function previewCapture(items: string[], onEvent: (e: CaptureEvent) => void): Promise<CaptureReport> {
+  const total = items.length;
+  const step = (stage: CaptureEvent["stage"], done: number, ms: number) => onEvent({ stage, message: "", done, total, elapsedMs: ms });
+  step("probe", 0, 0);
+  for (let i = 0; i < total; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    step("unity", i + 1, 300 + i * 250);
+  }
+  step("done", total, 300 + total * 250);
+  return {
+    runId: "20260101-000000-0000",
+    mode: "batch",
+    reason: "closed",
+    project: PREVIEW_PROJECT.path,
+    outDir: "(preview)",
+    ok: true,
+    error: null,
+    items: items.map((prefab, i) => ({ id: `item${i}`, prefab, kind: "building", ok: true, output: `preview:${i}`, coverage: 0.4 })),
+    failed: 0,
+    exitCode: 0,
+    pending: false,
+    logTail: [],
+    unityMs: total * 250,
+    elapsedMs: 300 + total * 250,
+  };
+}
+
+/** Captures `items` of project `id`; steps come to `onEvent`. */
+export function captureOnly(id: string, items: string[], onEvent: (e: CaptureEvent) => void): Promise<CaptureReport> {
+  if (!inTauri) return previewCapture(items, onEvent);
+  const channel = new Channel<CaptureEvent>();
+  channel.onmessage = onEvent;
+  return invoke<CaptureReport>("capture_only", { id, items, purpose: "capture", onEvent: channel });
+}
+
+/** A capture PNG as a data: URL (the preview draws a plain shape). */
+export function captureImage(path: string): Promise<string> {
+  if (!inTauri) return Promise.resolve(previewPicture(Number(path.split(":")[1] ?? 0) + 1));
+  return invoke<string>("capture_image", { path });
 }
 
 export function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {

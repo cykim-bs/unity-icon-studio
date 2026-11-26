@@ -78,3 +78,59 @@ export interface PackSummary {
   dir: string | null;
   problem: string | null;
 }
+
+/** A step of a capture (uis-core capture.rs CaptureEvent). */
+export interface CaptureEvent {
+  stage: "probe" | "hooks" | "unity" | "cleanup" | "done";
+  message: string;
+  done: number;
+  total: number;
+  elapsedMs: number;
+}
+
+export interface CaptureItemReport {
+  id: string;
+  prefab: string;
+  kind: Kind;
+  ok: boolean;
+  error?: string;
+  output?: string;
+  thumb?: string;
+  coverage: number | null;
+}
+
+/** What a capture request did (uis-core capture.rs CaptureReport, trimmed to what the page reads). */
+export interface CaptureReport {
+  runId: string;
+  mode: "attach" | "batch" | "blocked";
+  reason: string;
+  project: string;
+  outDir: string;
+  ok: boolean;
+  error: string | null;
+  items: CaptureItemReport[];
+  failed: number;
+  exitCode?: number;
+  pending: boolean;
+  logTail: string[];
+  unityMs: number;
+  elapsedMs: number;
+}
+
+export interface RecoveryEntry {
+  runId: string;
+  project: string;
+  state: string;
+  pid: number;
+  running: boolean;
+  startedMs: number;
+}
+
+/** A finished left-over batch capture (uis-core capture.rs BatchFinish). */
+export interface BatchFinish {
+  runId: string;
+  project: string;
+  exitCode: number | null;
+  entryRemoved: boolean;
+  error: string | null;
+}

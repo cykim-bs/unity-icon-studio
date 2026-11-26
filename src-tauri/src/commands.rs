@@ -206,3 +206,71 @@ pub fn pack_list() -> Vec<uis_core::packs::PackSummary> {
 pub fn pack_get(id: String) -> Result<Value, String> {
     uis_core::packs::load(&home(), &id).map(|p| p.doc)
 }
+
+// ---------------------------------------------------------------- capture and recovery
+
+use uis_core::capture::{BatchFinish, CaptureEvent, CaptureReport, CaptureRequest, RecoveryEntry};
+
+/// One capture at a time (Unity takes one request per project anyway).
+static CAPTURING: AtomicBool = AtomicBool::new(false);
+
+/// Captures `items` (asset paths) of a listed project: in its open editor or in batch mode.
+/// `purpose` is `capture` or `thumb`. Steps come through `on_event`.
+#[tauri::command]
+pub async fn capture_only(
+    id: String,
+    items: Vec<String>,
+    purpose: Option<String>,
+    on_event: tauri::ipc::Channel<CaptureEvent>,
+) -> Result<CaptureReport, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&CAPTURING) else {
+        return Err("busy".into());
+    };
+    blocking(move || {
+        let home = home();
+        let entry = projects::entry(&home, &id)?;
+        let req = CaptureRequest {
+            project: PathBuf::from(&entry.path),
+            items,
+            pack_id: Some(entry.pack_id.clone()),
+            purpose: purpose.unwrap_or_else(|| "capture".into()),
+            ..CaptureRequest::default()
+        };
+        Ok(uis_core::capture::capture(&home, &req, &mut |e| {
+            let _ = on_event.send(e.clone());
+        }))
+    })
+    .await
+}
+
+/// A PNG the tool wrote (a capture or a thumbnail) as a `data:` URL, only from the tool's home
+/// and work folder.
+#[tauri::command]
+pub async fn capture_image(path: String) -> Result<String, String> {
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let p = Path::new(&path);
+        let work = s.work_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| home.default_work_dir());
+        if !(is_inside(p, home.root()) || is_inside(p, &work)) {
+            return Err("outside".into());
+        }
+        uis_core::image::png_data_url(p)
+    })
+    .await
+}
+
+/// Batch captures left by an earlier run (Unity still running or not cleaned up yet).
+#[tauri::command]
+pub async fn recovery_status() -> Result<Vec<RecoveryEntry>, String> {
+    blocking(|| Ok(uis_core::capture::recovery_status(&home()))).await
+}
+
+/// Finishes the left batch captures whose Unity has ended.
+#[tauri::command]
+pub async fn recovery_run() -> Result<Vec<BatchFinish>, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&CAPTURING) else {
+        return Err("busy".into());
+    };
+    blocking(|| Ok(uis_core::capture::recover(&home()))).await
+}

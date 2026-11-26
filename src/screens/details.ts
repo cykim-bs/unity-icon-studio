@@ -3,22 +3,38 @@
  * kind (a person can change it; kept per project). Several: how many and of which kinds.
  */
 
+import { capturable, captureErrorText, itemErrorText } from "../capture-text";
 import { t } from "../i18n";
 import { KIND_CHIPS } from "../prefab-filter";
 import type { PackSummary, PrefabItem, ProjectSummary } from "../types";
 import { modeText, reasonText } from "./projects";
+
+/** Capture state of the open project, kept by the page (main.ts). */
+export interface CaptureView {
+  running: boolean;
+  /** Progress line while running */
+  progress: string;
+  /** Last run's error, as a code */
+  error: string | null;
+  /** Picture (data: URL) of the last capture, by asset path */
+  images: Record<string, string>;
+  /** Item error of the last capture, by asset path */
+  failures: Record<string, string>;
+}
 
 export interface DetailsView {
   project: ProjectSummary | null;
   pack: PackSummary | null;
   picked: PrefabItem[];
   lang: string;
+  capture: CaptureView;
 }
 
 export interface DetailsHooks {
   setKind(item: PrefabItem, kind: string | null): void;
   openFolder(folder: string): void;
   copy(text: string): void;
+  capture(items: PrefabItem[]): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
@@ -72,7 +88,39 @@ function kindSourceText(item: PrefabItem): string {
   }
 }
 
-function one(item: PrefabItem, hooks: DetailsHooks): HTMLElement[] {
+function captureButton(items: PrefabItem[], cap: CaptureView, hooks: DetailsHooks, label: string): HTMLButtonElement {
+  const b = el("button", "act-btn primary", cap.running ? t("capture.running") : label);
+  b.type = "button";
+  b.disabled = cap.running || items.length === 0;
+  b.addEventListener("click", () => hooks.capture(items));
+  return b;
+}
+
+/** Status lines under the capture button: progress, or why the last run did not go through. */
+function captureNotes(cap: CaptureView): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  if (cap.running && cap.progress) out.push(el("p", "body-hint", cap.progress));
+  else if (cap.error) out.push(el("p", "body-hint warn-text", captureErrorText(cap.error)));
+  return out;
+}
+
+function previewBox(item: PrefabItem, cap: CaptureView): HTMLElement {
+  const box = el("figure", "capture-preview");
+  const src = cap.images[item.path];
+  if (src) {
+    const img = el("img");
+    img.src = src;
+    img.alt = t("capture.preview");
+    img.draggable = false;
+    box.append(img);
+  } else {
+    const fail = cap.failures[item.path];
+    box.append(el("figcaption", fail ? "warn-text" : "muted", fail ? t("capture.itemFailed", { text: itemErrorText(fail) }) : t("capture.none")));
+  }
+  return box;
+}
+
+function one(item: PrefabItem, hooks: DetailsHooks, cap: CaptureView): HTMLElement[] {
   const head = el("div", "details-head");
   head.append(el("h2", "details-title", item.name));
   const path = el("button", "link-btn path", item.path);
@@ -99,22 +147,42 @@ function one(item: PrefabItem, hooks: DetailsHooks): HTMLElement[] {
     [t("details.guid"), item.guid || t("details.noGuid")],
   ];
   const actions = el("div", "body-actions");
+  const ok = capturable(item.class);
+  if (ok) actions.append(captureButton([item], cap, hooks, cap.images[item.path] ? t("capture.retake") : t("capture.take")));
   const open = el("button", "act-btn", t("details.openFolder"));
   open.type = "button";
   open.addEventListener("click", () => hooks.openFolder(item.folder));
   actions.append(open);
-  const out = [head, facts(rows), actions];
-  if (item.class !== "3d" && item.class !== "model") out.push(el("p", "body-hint warn-text", t("details.not3d")));
+  const out: HTMLElement[] = [head];
+  if (ok) out.push(previewBox(item, cap));
+  out.push(facts(rows), actions, ...captureNotes(cap));
+  if (!ok) out.push(el("p", "body-hint warn-text", t("details.not3d")));
   return out;
 }
 
-function many(items: PrefabItem[]): HTMLElement[] {
+function many(items: PrefabItem[], hooks: DetailsHooks, cap: CaptureView): HTMLElement[] {
   const counts = new Map<string, number>();
   for (const i of items) counts.set(i.kind, (counts.get(i.kind) ?? 0) + 1);
   const head = el("div", "details-head");
   head.append(el("h2", "details-title", t("details.many", { n: items.length })));
   const rows: [string, string][] = KIND_CHIPS.filter((k) => counts.has(k)).map((k) => [t(`kind.${k}`), String(counts.get(k))]);
-  return [head, facts(rows)];
+  const targets = items.filter((i) => capturable(i.class));
+  const actions = el("div", "body-actions");
+  actions.append(captureButton(targets, cap, hooks, t("capture.takeMany", { n: targets.length })));
+  const strip = el("div", "capture-strip");
+  for (const i of targets) {
+    const src = cap.images[i.path];
+    if (!src) continue;
+    const img = el("img");
+    img.src = src;
+    img.alt = i.name;
+    img.title = i.name;
+    img.draggable = false;
+    strip.append(img);
+  }
+  const out: HTMLElement[] = [head, facts(rows), actions, ...captureNotes(cap)];
+  if (strip.childElementCount) out.push(strip);
+  return out;
 }
 
 export function renderDetails(content: HTMLElement, view: DetailsView, hooks: DetailsHooks): string {
@@ -123,11 +191,11 @@ export function renderDetails(content: HTMLElement, view: DetailsView, hooks: De
     return "";
   }
   if (view.picked.length === 1) {
-    content.replaceChildren(...one(view.picked[0], hooks));
+    content.replaceChildren(...one(view.picked[0], hooks, view.capture));
     return view.picked[0].name;
   }
   if (view.picked.length > 1) {
-    content.replaceChildren(...many(view.picked));
+    content.replaceChildren(...many(view.picked, hooks, view.capture));
     return t("details.many", { n: view.picked.length });
   }
   const box = el("div", "body-empty");

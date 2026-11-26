@@ -14,15 +14,16 @@
  */
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { call, inTauri } from "./backend";
+import { call, captureImage, captureOnly, inTauri } from "./backend";
+import { captureErrorText } from "./capture-text";
 import { applyDomTexts, currentLang, resolveLang, setLang, t } from "./i18n";
 import { applyFilter, CLASS_CHIPS, DEFAULT_FILTER, folderChoices, KIND_CHIPS, nextSelection, type ClassChip, type PrefabFilter } from "./prefab-filter";
-import { renderDetails } from "./screens/details";
+import { renderDetails, type CaptureView } from "./screens/details";
 import { gridColumns, itemKey, renderChips, renderGrid } from "./screens/prefabs";
 import { modeText, reasonText, renderProjects } from "./screens/projects";
 import { aboutPanel } from "./settings-panels";
 import { getSetting, onSettingsChange, onSettingsSaveError, receiveSettings, setSetting, SETTING_KEYS, type SettingKey } from "./settings";
-import { relabelBanner, setBannerFocusHome } from "./shell/banner";
+import { relabelBanner, setBannerFocusHome, showBanner } from "./shell/banner";
 import { showContextMenu, showMenuBelow, type MenuEntry } from "./shell/context-menu";
 import { initFrame } from "./shell/frame";
 import { initKeys } from "./shell/keys";
@@ -33,7 +34,7 @@ import { initSettingsDialog } from "./shell/settings-dialog";
 import { fitStatusbar, flashStatus, setStatusPath } from "./shell/statusbar";
 import { initTheme, isThemeChoice, oppositeChoice } from "./shell/theme";
 import { initTitlebar } from "./shell/titlebar";
-import type { AppInfo, HubProject, Kind, PackSummary, PrefabItem, ProjectSummary, ScanResult } from "./types";
+import type { AppInfo, BatchFinish, CaptureEvent, HubProject, Kind, PackSummary, PrefabItem, ProjectSummary, RecoveryEntry, ScanResult } from "./types";
 
 function $(id: string): HTMLElement {
   const node = document.getElementById(id);
@@ -76,6 +77,9 @@ let anchor: string | null = null;
 let focusKey: string | null = null;
 let shown: PrefabItem[] = [];
 let dropHover = false;
+const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {} });
+/** Capture state of the open project (cleared when another project is opened). */
+let cap: CaptureView = emptyCapture();
 
 // ---------------------------------------------------------------- state helpers
 
@@ -182,11 +186,12 @@ function renderList() {
 function renderBody() {
   const title = renderDetails(
     $("body-content"),
-    { project: current(), pack: packOf(current()), picked: picked(), lang: currentLang() },
+    { project: current(), pack: packOf(current()), picked: picked(), lang: currentLang(), capture: cap },
     {
       setKind: (item, kind) => void setKind(item, kind),
       openFolder: (folder) => void openInProject(folder),
       copy: (text) => void copyText(text),
+      capture: (items) => void runCapture(items),
     },
   );
   $("body-title").textContent = title || t("body.title");
@@ -198,8 +203,10 @@ function renderStatus() {
   $("status-mode").textContent = p ? modeText(p) : "";
   $("status-mode").title = p ? reasonText(p) : "";
   $("status-ready").textContent = "";
-  $("status-busy").hidden = !scanning;
-  $("status-progress-text").textContent = scanning
+  $("status-busy").hidden = !scanning && !cap.running;
+  $("status-progress-text").textContent = cap.running
+    ? cap.progress
+    : scanning
     ? t("status.scanning")
     : scan
       ? t("status.scanned", { n: scan.total, ms: scan.elapsedMs })
@@ -243,6 +250,7 @@ function pickProject(id: string) {
   if (id === currentId && scan) return;
   currentId = id;
   writePref("project", id);
+  if (!cap.running) cap = emptyCapture();
   scan = null;
   scanError = null;
   selected = new Set();
@@ -427,6 +435,92 @@ async function setKind(item: PrefabItem, kind: string | null) {
   } catch (e) {
     flashStatus(errorText(String(e)));
   }
+}
+
+// ---------------------------------------------------------------- capture
+
+function progressText(e: CaptureEvent): string {
+  return t("capture.progress", { stage: t(`capture.stage.${e.stage}`), done: e.done, total: e.total });
+}
+
+/** Captures the items (in the open editor or in batch mode) and shows what came out. */
+async function runCapture(items: PrefabItem[]) {
+  const id = currentId;
+  if (!id || cap.running || !items.length) return;
+  cap.running = true;
+  cap.error = null;
+  cap.progress = t("capture.running");
+  renderBody();
+  renderStatus();
+  try {
+    const report = await captureOnly(
+      id,
+      items.map((i) => i.path),
+      (e) => {
+        cap.progress = progressText(e);
+        renderStatus();
+        if (selected.size) renderBody();
+      },
+    );
+    cap.error = report.error;
+    for (const it of report.items) {
+      if (it.ok && it.output) {
+        delete cap.failures[it.prefab];
+        cap.images[it.prefab] = await captureImage(it.output).catch(() => "");
+      } else if (it.error) {
+        cap.failures[it.prefab] = it.error;
+      }
+    }
+    const ok = report.items.filter((i) => i.ok).length;
+    const s = (report.elapsedMs / 1000).toFixed(1);
+    if (report.error) flashStatus(captureErrorText(report.error), 6000);
+    else flashStatus(report.failed ? t("capture.doneFailed", { ok, failed: report.failed, s }) : t("capture.done", { ok, s }), 5000);
+    if (report.pending) void checkRecovery();
+  } catch (e) {
+    cap.error = String(e) === "busy" ? "busy" : String(e);
+    flashStatus(errorText(String(e)), 5000);
+  } finally {
+    cap.running = false;
+    cap.progress = "";
+    if (currentId === id) {
+      renderBody();
+      renderStatus();
+      void refreshProjects(false);
+    } else {
+      cap = emptyCapture();
+    }
+  }
+}
+
+/** Batch captures left by an earlier run: a banner to clean them up (or one saying Unity still runs). */
+async function checkRecovery() {
+  const left = (await call<RecoveryEntry[]>("recovery_status").catch(() => null)) ?? [];
+  if (!left.length) {
+    showBanner(null);
+    return;
+  }
+  const running = left.filter((e) => e.running).length;
+  if (running === left.length) {
+    showBanner({ key: `recovery-running-${left.map((e) => e.runId).join(",")}`, message: t("recovery.running", { n: running }) });
+    return;
+  }
+  showBanner({
+    key: `recovery-${left.map((e) => e.runId).join(",")}`,
+    message: t("recovery.pending", { n: left.length - running }),
+    warn: true,
+    actions: [
+      {
+        label: t("recovery.run"),
+        run: () =>
+          void call<BatchFinish[]>("recovery_run")
+            .then((done) => {
+              flashStatus(t("recovery.done", { n: done.length }), 5000);
+              void checkRecovery();
+            })
+            .catch((e) => flashStatus(errorText(String(e)), 5000)),
+      },
+    ],
+  });
 }
 
 // ---------------------------------------------------------------- small actions
@@ -633,6 +727,7 @@ async function boot() {
   await call("window_ready").catch(() => {});
   await bindDrop();
   if (currentId) void runScan(false);
+  void checkRecovery();
 }
 
 void boot();

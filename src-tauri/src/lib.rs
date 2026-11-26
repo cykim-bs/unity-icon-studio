@@ -58,6 +58,10 @@ pub fn run() {
             commands::prefab_override,
             commands::pack_list,
             commands::pack_get,
+            commands::capture_only,
+            commands::capture_image,
+            commands::recovery_status,
+            commands::recovery_run,
         ])
         .setup(|app| {
             let home = uis_core::home::Home::resolve();
