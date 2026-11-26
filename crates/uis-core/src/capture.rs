@@ -159,6 +159,20 @@ pub fn item_values(pack: &Pack, kind: &str, rule: Option<&Value>, person: Option
         if let Some(r) = o.rotation {
             v.insert("rotation".into(), json!(r));
         }
+        if let Some(p) = o.pitch {
+            v.insert("pitch".into(), json!(p));
+        }
+        if let Some(y) = o.yaw {
+            // The amount is the person's, the side stays the pack's (until yawSign says otherwise)
+            let was = v.get("yaw").and_then(|y| y.as_f64()).unwrap_or(28.0);
+            v.insert("yaw".into(), json!(if was < 0.0 { -y.abs() } else { y.abs() }));
+        }
+        if let Some(p) = &o.projection {
+            v.insert("projection".into(), json!(p));
+        }
+        if let Some(f) = o.fov {
+            v.insert("fov".into(), json!(f));
+        }
         if let Some(sign) = o.yaw_sign {
             let yaw = v.get("yaw").and_then(|y| y.as_f64()).unwrap_or(28.0).abs();
             v.insert("yaw".into(), json!(if sign < 0 { -yaw } else { yaw }));
@@ -178,6 +192,19 @@ pub fn item_values(pack: &Pack, kind: &str, rule: Option<&Value>, person: Option
         }
     }
     v
+}
+
+/// The capture values a picture was taken with: the item of `job-in.json` next to it whose
+/// `output` is the picture's file name. None for a picture that did not come from a capture.
+pub fn values_of_picture(picture: &Path) -> Option<Map<String, Value>> {
+    let dir = picture.parent()?;
+    let name = picture.file_name()?.to_string_lossy().to_lowercase();
+    let job: Value = serde_json::from_slice(&std::fs::read(dir.join("job-in.json")).ok()?).ok()?;
+    job.get("items")?
+        .as_array()?
+        .iter()
+        .find(|i| i.get("output").and_then(Value::as_str).is_some_and(|o| o.to_lowercase() == name))
+        .and_then(|i| i.as_object().cloned())
 }
 
 /// What the job needs to know about one asset.
@@ -851,9 +878,38 @@ mod tests {
         assert_eq!(person["hideObjectsNamed"], json!(["Shadow"]));
         assert_eq!(person["pose"], json!("defaultState"));
 
-        let o = Override { yaw_sign: Some(-1), front: Some("+x".into()), rotation: Some([0.0, 90.0, 0.0]), kind: None };
+        let o = Override { yaw_sign: Some(-1), front: Some("+x".into()), rotation: Some([0.0, 90.0, 0.0]), ..Override::default() };
         let mine = item_values(&p, "building", None, Some(&o));
         assert_eq!((mine["yaw"].clone(), mine["front"].clone(), mine["rotation"].clone()), (json!(-28.0), json!("+x"), json!([0.0, 90.0, 0.0])));
+    }
+
+    #[test]
+    fn a_persons_camera_goes_over_the_pack_and_keeps_the_side() {
+        let p = Pack::builtin();
+        let o = Override { yaw: Some(40.0), pitch: Some(12.0), projection: Some("perspective".into()), fov: Some(30.0), ..Override::default() };
+        let v = item_values(&p, "building", None, Some(&o));
+        assert_eq!((v["yaw"].clone(), v["pitch"].clone(), v["projection"].clone(), v["fov"].clone()), (json!(40.0), json!(12.0), json!("perspective"), json!(30.0)));
+        // the amount is the person's, the side flips only with yawSign
+        let flipped = Override { yaw: Some(40.0), yaw_sign: Some(-1), ..Override::default() };
+        assert_eq!(item_values(&p, "building", None, Some(&flipped))["yaw"], json!(-40.0));
+        let mut left = p.clone();
+        left.doc["kinds"]["building"]["capture"]["yaw"] = json!(-28);
+        assert_eq!(item_values(&left, "building", None, Some(&Override { yaw: Some(15.0), ..Override::default() }))["yaw"], json!(-15.0));
+    }
+
+    #[test]
+    fn a_picture_knows_its_capture_values() {
+        let d = std::env::temp_dir().join(format!("uis-values-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let job = build_job(&Pack::builtin(), &[JobItem { asset: "Assets/Props/Crate.prefab".into(), kind: "prop".into(), ..JobItem::default() }], &HashMap::new(), "capture");
+        std::fs::write(d.join("job-in.json"), job.to_string()).unwrap();
+        let v = values_of_picture(&d.join("Crate.png")).expect("found by output name");
+        assert_eq!(v["prefab"], json!("Assets/Props/Crate.prefab"));
+        assert!(v["yaw"].is_number() && v["pitch"].is_number());
+        assert!(values_of_picture(&d.join("Other.png")).is_none());
+        assert!(values_of_picture(&std::env::temp_dir().join("no-such-dir/x.png")).is_none());
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

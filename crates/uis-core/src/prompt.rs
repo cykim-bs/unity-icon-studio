@@ -50,6 +50,9 @@ pub struct PromptContext {
     pub key_color: String,
     /// `strict` (keep the capture, add nothing) or `stylized`
     pub fidelity: String,
+    /// `orthographic` or `perspective` (with `fov` degrees), as captured
+    pub projection: String,
+    pub fov: f64,
 }
 
 impl Default for PromptContext {
@@ -63,6 +66,8 @@ impl Default for PromptContext {
             background: "transparent".into(),
             key_color: "#FF00FF".into(),
             fidelity: "strict".into(),
+            projection: "orthographic".into(),
+            fov: 20.0,
         }
     }
 }
@@ -73,7 +78,26 @@ impl PromptContext {
         let preset = pack.kind_preset(kind);
         let cap = preset.get("capture");
         let num = |k: &str, d: f64| cap.and_then(|c| c.get(k)).and_then(Value::as_f64).unwrap_or(d);
-        PromptContext { kind: kind.into(), yaw: num("yaw", 28.0), pitch: num("pitch", 30.0), ..PromptContext::default() }
+        let projection = cap.and_then(|c| c.get("projection")).and_then(Value::as_str).unwrap_or("orthographic").to_string();
+        PromptContext { kind: kind.into(), yaw: num("yaw", 28.0), pitch: num("pitch", 30.0), projection, fov: num("fov", 20.0), ..PromptContext::default() }
+    }
+
+    /// Takes the camera of a capture's values (`yaw`, `pitch`, `projection`, `fov`), so the
+    /// CAMERA sentence says what the picture shows.
+    pub fn with_capture(mut self, values: &serde_json::Map<String, Value>) -> PromptContext {
+        if let Some(y) = values.get("yaw").and_then(Value::as_f64) {
+            self.yaw = y;
+        }
+        if let Some(p) = values.get("pitch").and_then(Value::as_f64) {
+            self.pitch = p;
+        }
+        if let Some(p) = values.get("projection").and_then(Value::as_str) {
+            self.projection = p.to_string();
+        }
+        if let Some(f) = values.get("fov").and_then(Value::as_f64) {
+            self.fov = f;
+        }
+        self
     }
 }
 
@@ -145,6 +169,14 @@ fn fill(text: &str, ctx: &PromptContext, pack: &Pack) -> String {
         ("{pitch}", number(ctx.pitch)),
         ("{yaw}", number(ctx.yaw.abs())),
         ("{side}", side.to_string()),
+        (
+            "{projection}",
+            if ctx.projection == "perspective" {
+                format!("a mild perspective like the capture (about a {} degree field of view)", number(ctx.fov))
+            } else {
+                "orthographic-like projection with parallel vertical edges, no wide-angle distortion".to_string()
+            },
+        ),
         ("{keyColor}", ctx.key_color.clone()),
         ("{lastRef}", (ctx.refs + 1).to_string()),
         (
@@ -670,6 +702,26 @@ mod tests {
         }
         let prop = assemble(&pack, &PromptContext::for_kind(&pack, "prop")).unwrap();
         assert!(prop.text.contains("Keep any ground, base or stand that is part of the capture"));
+    }
+
+    #[test]
+    fn the_camera_sentence_says_what_the_capture_was_taken_with() {
+        let pack = Pack::builtin();
+        let cam = |ctx: &PromptContext| assemble(&pack, ctx).unwrap().sentences.into_iter().find(|s| s.id == "CAMERA.view").unwrap().text;
+        // The kind preset, unchanged: the same text as before the projection placeholder
+        let base = cam(&PromptContext::for_kind(&pack, "building"));
+        assert!(base.contains("about 30 degrees") && base.contains("about 28 degrees") && base.contains("the right side"), "{base}");
+        assert!(base.contains("orthographic-like projection with parallel vertical edges, no wide-angle distortion"));
+        // A capture turned the other way, looking down less, with a perspective lens
+        let values = serde_json::json!({ "yaw": -40.0, "pitch": 12, "projection": "perspective", "fov": 25 });
+        let ctx = PromptContext::for_kind(&pack, "building").with_capture(values.as_object().unwrap());
+        let text = cam(&ctx);
+        assert!(text.contains("about 12 degrees"), "{text}");
+        assert!(text.contains("about 40 degrees"), "{text}");
+        assert!(text.contains("the left side"), "{text}");
+        assert!(text.contains("about a 25 degree field of view") && !text.contains("orthographic"), "{text}");
+        // Nothing left unfilled
+        assert!(!assemble(&pack, &ctx).unwrap().text.contains('{'));
     }
 
     #[test]

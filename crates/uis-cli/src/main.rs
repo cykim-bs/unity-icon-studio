@@ -43,6 +43,11 @@ commands:
                        checks → fidelity review [→ retry with corrections] [→ export]; steps go to
                        stderr (counts against the image limit). --capture uses that picture instead
                        of capturing (one prefab)
+  camera --project <folder> --prefab <asset> [--set key=value...] [--reset] [--json]
+                       a prefab's composition: what the kind preset, the pack's rule and a person
+                       give, and what a capture uses now; --set stores a person's value (yaw pitch
+                       yawSign front rotation=x,y,z projection fov; `key=` clears it), --reset
+                       clears them all. Adds the project to the list when it is not on it
   review --capture <png> --candidate <png> --kind <kind> [--cli claude|codex] [--json]
                        ask an LLM whether a picture is usable ({pass, issues})
   post --job <folder> [--cand N] [--set key=value...] [--json]
@@ -134,6 +139,7 @@ fn main() {
         Some("generate") => generate_cmd(&args),
         Some("run") => run_cmd(&args),
         Some("review") => review_cmd(&args),
+        Some("camera") => camera_cmd(&args),
         Some("post") => post_cmds::post_cmd(&args),
         Some("check") => post_cmds::check_cmd(&args),
         Some("board") => post_cmds::board_cmd(&args),
@@ -685,4 +691,86 @@ fn run_cmd(args: &Args) -> i32 {
     } else {
         1
     }
+}
+
+fn camera_cmd(args: &Args) -> i32 {
+    let (Some(project), Some(asset)) = (args.value("--project").map(PathBuf::from), args.value("--prefab")) else {
+        eprintln!("uis camera: give --project and --prefab\n\n{USAGE}");
+        return 2;
+    };
+    let home = Home::resolve();
+    let summary = match uis_core::projects::add(&home, &project) {
+        Ok(p) => p,
+        Err(e) => return fail(args, &e),
+    };
+    let pack = match uis_core::packs::load(&home, &summary.pack_id) {
+        Ok(p) => p,
+        Err(e) => return fail(args, &format!("pack:{e}")),
+    };
+    let root = PathBuf::from(&summary.probe.facts.path);
+    let options = uis_core::prefabs::ScanOptions {
+        force: false,
+        include_models: true,
+        kind_overrides: uis_core::projects::kind_overrides(&home, &summary.id),
+    };
+    let scan = match uis_core::prefabs::scan(&home, &root, &pack, &options) {
+        Ok(r) => r,
+        Err(e) => return fail(args, &e),
+    };
+    let Some(item) = scan.prefabs.iter().find(|p| p.path.eq_ignore_ascii_case(asset)) else {
+        return fail(args, &format!("noPrefab:{asset}"));
+    };
+    if item.guid.is_empty() {
+        return fail(args, "noGuid");
+    }
+    // The values to store: numbers, `x,y,z` for the rotation, text, or nothing to clear
+    let mut patch = serde_json::Map::new();
+    if args.has("--reset") {
+        for k in ["yaw", "pitch", "yawSign", "front", "rotation", "projection", "fov"] {
+            patch.insert(k.into(), Value::Null);
+        }
+    }
+    for kv in args.all("--set") {
+        let Some((k, v)) = kv.split_once('=') else { return fail(args, &format!("badSet:{kv}")) };
+        let v = v.trim();
+        let value = if v.is_empty() {
+            Value::Null
+        } else if k == "rotation" {
+            let n: Vec<f64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+            if n.len() != 3 {
+                return fail(args, &format!("badSet:{kv}"));
+            }
+            json!(n)
+        } else if let Ok(n) = v.parse::<f64>() {
+            if k == "yawSign" { json!(n as i64) } else { json!(n) }
+        } else {
+            json!(v)
+        };
+        patch.insert(k.to_string(), value);
+    }
+    if !patch.is_empty() {
+        if let Err(e) = uis_core::projects::set_override(&home, &summary.id, &item.guid, &patch) {
+            return fail(args, &e);
+        }
+    }
+    let rules = pack.kind_rules();
+    let rule = item.rule.as_ref().and_then(|p| rules.iter().find(|r| &r.pattern == p)).map(|r| r.extra.clone());
+    let person = uis_core::projects::load_state(&home, &summary.id).overrides.get(&item.guid.to_ascii_lowercase()).cloned();
+    let value = json!({
+        "project": summary.probe.facts.path,
+        "prefab": item.path,
+        "kind": item.kind,
+        "rule": item.rule,
+        "preset": uis_core::capture::item_values(&pack, &item.kind, None, None),
+        "withRule": uis_core::capture::item_values(&pack, &item.kind, rule.as_ref(), None),
+        "person": person,
+        "effective": uis_core::capture::item_values(&pack, &item.kind, rule.as_ref(), person.as_ref()),
+    });
+    if args.json {
+        print_value(&value, true);
+    } else {
+        let e = &value["effective"];
+        println!("{} ({})  yaw {}  pitch {}  front {}  rotation {}  projection {}", item.path, item.kind, e["yaw"], e["pitch"], e["front"], e.get("rotation").unwrap_or(&Value::Null), e["projection"]);
+    }
+    0
 }

@@ -30,6 +30,18 @@ pub struct Override {
     /// `+z`, `-z`, `+x`, `-x`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub front: Option<String>,
+    /// How far the camera is turned, degrees (0 to 90; the side comes from the pack or `yawSign`)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub yaw: Option<f64>,
+    /// How far the camera looks down, degrees (-10 to 90)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pitch: Option<f64>,
+    /// `orthographic` or `perspective`
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projection: Option<String>,
+    /// Field of view for `perspective`, degrees (5 to 90)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fov: Option<f64>,
 }
 
 impl Override {
@@ -207,6 +219,26 @@ pub fn set_override(home: &Home, id: &str, guid: &str, patch: &Map<String, Value
             return Err(format!("badFront:{front}"));
         }
     }
+    let within = |v: Option<f64>, lo: f64, hi: f64| v.is_none_or(|x| x.is_finite() && (lo..=hi).contains(&x));
+    if !within(next.yaw, 0.0, 90.0) {
+        return Err("badYaw".into());
+    }
+    if !within(next.pitch, -10.0, 90.0) {
+        return Err("badPitch".into());
+    }
+    if !within(next.fov, 5.0, 90.0) {
+        return Err("badFov".into());
+    }
+    if let Some(p) = &next.projection {
+        if p != "orthographic" && p != "perspective" {
+            return Err(format!("badProjection:{p}"));
+        }
+    }
+    if let Some(r) = next.rotation {
+        if !r.iter().all(|x| x.is_finite() && x.abs() <= 360.0) {
+            return Err("badRotation".into());
+        }
+    }
     if next.is_empty() {
         state.overrides.remove(guid);
     } else {
@@ -260,7 +292,12 @@ mod tests {
         assert_eq!(kind_overrides(&home, &id).get(guid).map(String::as_str), Some("prop"));
         assert!(set_override(&home, &id, guid, &patch(json!({ "kind": "dragon" }))).is_err());
         assert!(set_override(&home, &id, guid, &patch(json!({ "yawSign": 2 }))).is_err());
-        set_override(&home, &id, guid, &patch(json!({ "kind": null, "rotation": null, "yawSign": null }))).unwrap();
+        let o = set_override(&home, &id, guid, &patch(json!({ "yaw": 35, "pitch": 20, "projection": "perspective", "fov": 25 }))).unwrap();
+        assert_eq!((o.yaw, o.pitch, o.projection.as_deref(), o.fov), (Some(35.0), Some(20.0), Some("perspective"), Some(25.0)));
+        for bad in [json!({ "yaw": 120 }), json!({ "yaw": -5 }), json!({ "pitch": 95 }), json!({ "fov": 2 }), json!({ "projection": "fisheye" }), json!({ "rotation": [999, 0, 0] })] {
+            assert!(set_override(&home, &id, guid, &patch(bad.clone())).is_err(), "{bad}");
+        }
+        set_override(&home, &id, guid, &patch(json!({ "kind": null, "rotation": null, "yawSign": null, "yaw": null, "pitch": null, "projection": null, "fov": null }))).unwrap();
         assert!(load_state(&home, &id).overrides.is_empty());
         let _ = std::fs::remove_dir_all(home.root().parent().unwrap());
     }

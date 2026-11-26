@@ -519,7 +519,7 @@
         {
           "id": "view",
           "locked": true,
-          "text": "Keep the capture's viewpoint exactly: camera looking down at about {pitch} degrees, object turned about {yaw} degrees so the front face and the {side} side face are visible, orthographic-like projection with parallel vertical edges, no wide-angle distortion. Do not rotate, re-pose or re-frame the object."
+          "text": "Keep the capture's viewpoint exactly: camera looking down at about {pitch} degrees, object turned about {yaw} degrees so the front face and the {side} side face are visible, {projection}. Do not rotate, re-pose or re-frame the object."
         }
       ],
       "AVOID": [

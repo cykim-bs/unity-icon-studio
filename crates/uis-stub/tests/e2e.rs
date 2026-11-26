@@ -328,3 +328,27 @@ fidelity=added
     assert_eq!(r.items[0].candidates.len(), 1);
     assert!(!r.items[0].pass);
 }
+
+#[test]
+fn a_persons_camera_reaches_the_capture_and_the_prompt() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let bed = Bed::new("camera", "delay_ms=200\n");
+    // The project on the list, with a person's camera for Crate: flipped, looking down 45, turned 40
+    let id = uis_core::projects::add(&bed.home, &bed.project).unwrap().id;
+    let meta = std::fs::read_to_string(bed.project.join("Assets/Props/Crate.prefab.meta")).unwrap();
+    let guid = meta.lines().find_map(|l| l.strip_prefix("guid: ")).unwrap().trim().to_string();
+    let patch = json!({ "yawSign": -1, "pitch": 45, "yaw": 40 });
+    uis_core::projects::set_override(&bed.home, &id, &guid, patch.as_object().unwrap()).unwrap();
+    let mut req = bed.request(&["Assets/Props/Crate.prefab"], "");
+    req.export_dir = None;
+    let (r, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let it = &r.items[0];
+    assert_eq!(it.state, "ok", "{:?}", it.error);
+    // The capture job had the person's values
+    let values = uis_core::capture::values_of_picture(Path::new(it.capture.as_ref().unwrap())).unwrap();
+    assert_eq!((values["yaw"].clone(), values["pitch"].clone()), (json!(-40.0), json!(45.0)));
+    // and the CAMERA sentence says the same
+    let fixed = std::fs::read_to_string(Path::new(it.job_dir.as_ref().unwrap()).join("prompt/fixed.txt")).unwrap();
+    assert!(fixed.contains("looking down at about 45 degrees"), "{fixed}");
+    assert!(fixed.contains("turned about 40 degrees") && fixed.contains("the left side face"), "{fixed}");
+}

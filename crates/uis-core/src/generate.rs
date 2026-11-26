@@ -241,7 +241,17 @@ fn run(
         report.refs.push(r.display().to_string());
     }
 
-    let mut ctx = context(&pack, settings, &req.kind, refs.len(), req.yaw, req.pitch);
+    let mut ctx = context(&pack, settings, &req.kind, refs.len(), None, None);
+    // What the capture was taken with (job-in.json next to it), then what the request says
+    if let Some(values) = crate::capture::values_of_picture(&req.input) {
+        ctx = ctx.with_capture(&values);
+    }
+    if let Some(y) = req.yaw {
+        ctx.yaw = y;
+    }
+    if let Some(p) = req.pitch {
+        ctx.pitch = p;
+    }
     ctx.fidelity = fidelity;
     if ctx.background == "flat" && !settings.generate.key_color.starts_with('#') {
         // `auto`: the key hue least used by the capture
