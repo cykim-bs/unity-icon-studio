@@ -537,5 +537,10 @@
   "camera.applied": "첨언대로 구도를 바꾸고 다시 찍습니다",
   "camera.err": "구도를 저장하지 못했습니다 ({code})",
   "prompt.cameraApply.front": "구도를 바꿔 다시 찍기(정면 가깝게)",
-  "prompt.cameraApply.flip": "구도를 바꿔 다시 찍기(반대쪽 옆면)"
+  "prompt.cameraApply.flip": "구도를 바꿔 다시 찍기(반대쪽 옆면)",
+  "export.original": "1024 원본 함께",
+  "export.originalHint": "크기를 줄이기 전 1024px 그림도 같은 이름에 _1024를 붙여 씁니다",
+  "settings.exportOriginal": "1024 원본도 내보내기",
+  "settings.exportOriginal.hint": "화면과 명령줄 모두 고른 크기에 더해 1024px 그림을 _1024 이름으로 씁니다",
+  "capture.leftChanged": "촬영 뒤 프로젝트에 바뀐 파일 {n}개가 남았습니다(도구가 되돌리지 않음, 커밋 전에 확인하세요): {files}"
 }

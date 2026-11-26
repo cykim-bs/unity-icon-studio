@@ -93,6 +93,7 @@
   {"do": "shot", "file": "${SHOTS}/06-result.png"},
   {"do": "click", "sel": "#export-btn", "note": "export"},
   {"do": "wait", "sel": ".export-done", "timeout": 30},
+  {"do": "expect", "sel": ".export-done", "text": "1024", "note": "the 1024 original went along"},
   {"do": "eval", "js": "document.querySelector('.export-done').scrollIntoView({ block: 'center' })"},
   {"do": "shot", "file": "${SHOTS}/07-export.png"},
   {"do": "key", "keys": "Ctrl+2", "note": "runs tab: open the job again"},

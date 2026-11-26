@@ -106,6 +106,8 @@ export interface DetailsView {
   bg: string;
   exportDir: string;
   exportRule: string;
+  /** Export the 1024 picture too (settings `exportOriginal`); absent: on */
+  exportOriginal?: boolean;
   /** A job opened from the 「Runs」 tab (shown instead of the picked prefab) */
   opened: ResultView | null;
   /** The camera of the one picked prefab (null while it loads) */
@@ -138,6 +140,7 @@ export interface DetailsHooks {
   pickExportFolder(): void;
   exportName(text: string): void;
   exportSize(size: number, on: boolean): void;
+  exportOriginal(on: boolean): void;
   openPath(path: string): void;
   checkReady(): void;
   closeOpened(): void;
@@ -514,7 +517,7 @@ function exportBlock(r: ResultView, view: DetailsView, hooks: DetailsHooks, read
   nameRow.append(el("span", "muted", t("export.name")), name, el("span", "muted", ".png"));
   const sizes = el("div", "make-row export-sizes");
   sizes.append(el("span", "muted", t("export.sizes")));
-  for (const size of [256, 512, 1024]) {
+  for (const size of [256, 512]) {
     const label = el("label", "check-label");
     const box2 = el("input");
     box2.type = "checkbox";
@@ -524,6 +527,16 @@ function exportBlock(r: ResultView, view: DetailsView, hooks: DetailsHooks, read
     label.append(box2, document.createTextNode(String(size)));
     sizes.append(label);
   }
+  // The 1024 picture (the master the sizes are made from) goes along unless turned off
+  const orig = el("label", "check-label");
+  const origBox = el("input");
+  origBox.type = "checkbox";
+  origBox.id = "export-original";
+  origBox.checked = view.exportOriginal !== false;
+  origBox.addEventListener("change", () => hooks.exportOriginal(origBox.checked));
+  orig.append(origBox, document.createTextNode(t("export.original")));
+  orig.title = t("export.originalHint");
+  sizes.append(orig);
   const folder = el("div", "make-row export-folder");
   const where = el("span", view.exportDir ? "export-dir" : "export-dir muted", view.exportDir || t("export.noFolder"));
   where.title = view.exportDir;
@@ -531,7 +544,7 @@ function exportBlock(r: ResultView, view: DetailsView, hooks: DetailsHooks, read
   pick.id = "export-pick";
   folder.append(el("span", "muted", t("export.folder")), where, pick);
   const actions = el("div", "body-actions");
-  const out = button(g.busy === "export" ? t("result.exporting") : t("result.export"), () => hooks.exportIcon(), "act-btn", !!g.busy || !ready || !view.exportDir || !g.exportSizes.length);
+  const out = button(g.busy === "export" ? t("result.exporting") : t("result.export"), () => hooks.exportIcon(), "act-btn", !!g.busy || !ready || !view.exportDir || (!g.exportSizes.length && view.exportOriginal === false));
   out.id = "export-btn";
   out.title = t("result.exportHint");
   actions.append(out);
@@ -539,7 +552,8 @@ function exportBlock(r: ResultView, view: DetailsView, hooks: DetailsHooks, read
   const x = r.exported;
   if (x?.ok) {
     const line = el("p", "body-hint export-done");
-    line.append(document.createTextNode(t("result.exported", { n: x.files.length, folder: x.folder }) + " "));
+    const which = x.files.map((f) => f.size).filter((n) => n > 0);
+    line.append(document.createTextNode(t("result.exported", { n: x.files.length, folder: x.folder }) + (which.length ? ` (${which.join(" · ")})` : "") + " "));
     line.append(button(t("export.openFolder"), () => hooks.openPath(x.folder), "link-btn"));
     box.append(line);
   } else if (x?.error) {

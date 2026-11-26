@@ -91,6 +91,7 @@ export const SETTINGS = {
   },
   workDir: { kind: "text", section: "folders", label: "settings.workDir", hint: "settings.workDir.hint", default: "", placeholder: "settings.workDir.placeholder" },
   exportDir: { kind: "text", section: "folders", label: "settings.exportDir", hint: "settings.exportDir.hint", default: "", placeholder: "settings.exportDir.placeholder" },
+  exportOriginal: { kind: "toggle", section: "folders", label: "settings.exportOriginal", hint: "settings.exportOriginal.hint", default: true },
   exportName: { kind: "text", section: "folders", label: "settings.exportName", hint: "settings.exportName.hint", default: "icon_{prefab}" },
   "capture.mode": {
     kind: "select",

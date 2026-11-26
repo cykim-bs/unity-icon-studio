@@ -69,6 +69,7 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
       expect(rust).toMatch(new RegExp(`\\b${field}: ${d.default}\\b`));
     }
     expect(rust).toContain(`style_refs: ${SETTINGS["generate.styleRefs"].default},`);
+    expect(rust).toContain(`export_original: ${SETTINGS.exportOriginal.default},`);
   });
 });
 

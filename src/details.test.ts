@@ -162,6 +162,22 @@ describe("right column", () => {
     renderDetails(box2, view({ gen: gen({ result }), exportDir: "C:\\Icons" }), hooks());
     expect(box2.querySelector<HTMLButtonElement>("#export-btn")!.disabled).toBe(false);
     expect(box2.querySelector<HTMLInputElement>("#export-name")!.placeholder).toBe("icon_Crate");
+    // The 1024 original goes along by default; the size row has no 1024 of its own
+    const original = box2.querySelector<HTMLInputElement>("#export-original")!;
+    expect(original.checked).toBe(true);
+    expect([...box2.querySelectorAll<HTMLInputElement>(".export-sizes input[data-size]")].map((i) => i.dataset.size)).toEqual(["256", "512"]);
+    const h3 = hooks();
+    const box3 = document.createElement("div");
+    renderDetails(box3, view({ gen: gen({ result }), exportDir: "C:\\Icons", exportOriginal: false }), h3);
+    const off = box3.querySelector<HTMLInputElement>("#export-original")!;
+    expect(off.checked).toBe(false);
+    off.checked = true;
+    off.dispatchEvent(new Event("change"));
+    expect(h3.exportOriginal).toHaveBeenCalledWith(true);
+    // Only the original and no size: still something to write
+    const box4 = document.createElement("div");
+    renderDetails(box4, view({ gen: gen({ result, exportSizes: [] }), exportDir: "C:\\Icons" }), hooks());
+    expect(box4.querySelector<HTMLButtonElement>("#export-btn")!.disabled).toBe(false);
   });
 
   it("shows the fidelity checks, the review findings and the choices when a strict picture fails", () => {

@@ -144,7 +144,8 @@ const settingText = (key: string, d: string) => {
 };
 const exportSizes = (): number[] => {
   const v = valueAt(settingsDocument(), "exportSizes");
-  return Array.isArray(v) && v.every((n) => typeof n === "number") && v.length ? (v as number[]) : [256];
+  const list = Array.isArray(v) && v.every((n) => typeof n === "number") ? (v as number[]).filter((n) => n !== 1024) : [];
+  return list.length ? list : [256];
 };
 const emptyGen = (cli: string): GenView => ({
   note: "",
@@ -335,6 +336,7 @@ function renderBody() {
       bg: previewBg,
       exportDir: (getSetting("exportDir") as string) || "",
       exportRule: (getSetting("exportName") as string) || "icon_{prefab}",
+      exportOriginal: getSetting("exportOriginal") as boolean,
       opened,
       camera,
     },
@@ -397,6 +399,7 @@ function renderBody() {
         void call("settings_set", { patch: { exportSizes: gen.exportSizes } }).then(receiveSettings).catch(() => {});
         renderBody();
       },
+      exportOriginal: (on) => void setSetting("exportOriginal", on).then(renderBody),
       openPath: (path) => void call("open_path", { path }).catch((e) => flashStatus(t("status.openFailed", { text: String(e) }))),
       checkReady: () => void checkReady(true),
       closeOpened: () => {

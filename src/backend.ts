@@ -23,6 +23,7 @@ const PREVIEW_SETTINGS: Record<string, unknown> = {
   theme: previewTheme === "light" || previewTheme === "dark" ? previewTheme : "system",
   exportDir: query.has("sample") ? "C:\\Exports" : null,
   exportSizes: [256],
+  exportOriginal: true,
 };
 
 function setPath(target: Record<string, unknown>, key: string, value: unknown): void {
@@ -302,7 +303,8 @@ export function exportIcons(job: string, cand: number, sizes: number[], name: st
   if (!inTauri) {
     const base = rule || `icon_${name}`;
     const dir = folder ?? "C:\\Exports";
-    const files = (sizes.length ? sizes : [256]).map((size, i) => ({ size, path: `${dir}\\${base}${i ? `_${size}` : ""}.png` }));
+    const list = [...new Set([...(sizes.length ? sizes : [256]), ...(PREVIEW_SETTINGS.exportOriginal === false ? [] : [1024])])].sort((a, b) => a - b);
+    const files = list.map((size, i) => ({ size, path: `${dir}\\${base}${i ? `_${size}` : ""}.png` }));
     return Promise.resolve({ ok: true, folder: dir, files, error: null });
   }
   return invoke<ExportReport>("export", { job, cand, sizes, name, folder, rule });

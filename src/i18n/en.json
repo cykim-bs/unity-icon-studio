@@ -537,5 +537,10 @@
   "camera.applied": "Composition changed as the note asks; capturing again",
   "camera.err": "Could not store the composition ({code})",
   "prompt.cameraApply.front": "Change the composition and capture again (closer to the front)",
-  "prompt.cameraApply.flip": "Change the composition and capture again (other side)"
+  "prompt.cameraApply.flip": "Change the composition and capture again (other side)",
+  "export.original": "1024 original too",
+  "export.originalHint": "Also writes the 1024 px picture the sizes are made from, named with _1024",
+  "settings.exportOriginal": "Export the 1024 original too",
+  "settings.exportOriginal.hint": "Screen and command line write the 1024 px picture (_1024) besides the picked sizes",
+  "capture.leftChanged": "The capture left {n} changed file(s) in the project (not put back; look before committing): {files}"
 }
