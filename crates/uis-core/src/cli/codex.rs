@@ -57,7 +57,12 @@ pub fn codex_home() -> PathBuf {
 }
 
 pub fn find(home: &Home, settings: &Settings) -> Option<Found> {
-    if let Some(p) = settings.codex.path.as_ref().map(PathBuf::from).filter(|p| p.is_file()) {
+    // A path in the settings is the one to use: when it is wrong, say so instead of quietly
+    // running another copy
+    if let Some(p) = settings.codex.path.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(PathBuf::from) {
+        if !p.is_file() {
+            return None;
+        }
         let via_cmd = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd"));
         return Some(Found { path: p, source: "settings".into(), via_cmd });
     }
@@ -798,5 +803,16 @@ mod tests {
         let p = png_paths("Saved to C:\\fake\\home\\.codex\\generated_images\\t\\a.png.\n(see `C:/x/b.PNG`)");
         assert_eq!(p, [PathBuf::from("C:\\fake\\home\\.codex\\generated_images\\t\\a.png"), PathBuf::from("C:/x/b.PNG")]);
         assert!(png_paths("no picture here").is_empty());
+    }
+
+    #[test]
+    fn a_wrong_path_in_the_settings_is_not_replaced() {
+        let mut s = crate::settings::Settings::default();
+        s.codex.path = Some("C:/fake/nowhere/codex.exe".into());
+        let home = crate::home::Home::at(std::env::temp_dir().join(format!("uis-find-{}", std::process::id())));
+        assert!(find(&home, &s).is_none(), "no other copy is used behind the setting");
+        let mut c = crate::settings::Settings::default();
+        c.claude.path = Some("C:/fake/nowhere/claude.exe".into());
+        assert!(crate::cli::claude::find(&c).is_none());
     }
 }

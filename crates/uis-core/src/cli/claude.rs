@@ -22,7 +22,12 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 const KEEP_VAR: &str = "CLAUDE_CONFIG_DIR";
 
 pub fn find(settings: &Settings) -> Option<Found> {
-    if let Some(p) = settings.claude.path.as_ref().map(PathBuf::from).filter(|p| p.is_file()) {
+    // A path in the settings is the one to use: when it is wrong, say so instead of quietly
+    // running another copy
+    if let Some(p) = settings.claude.path.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(PathBuf::from) {
+        if !p.is_file() {
+            return None;
+        }
         let via_cmd = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("cmd"));
         return Some(Found { path: p, source: "settings".into(), via_cmd });
     }
