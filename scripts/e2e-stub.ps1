@@ -12,7 +12,9 @@
 #   7. Claude missing: the rewrite falls back to Codex
 #   8. keep the original (strict): a picture with an added sparkle fails the fidelity review and
 #      one more try with the correction fixes it, on both review paths (Claude, then Codex)
-# Steps 5, 6 and 8 print a table of the two paths; a path that did not run is a failure.
+#   9. composition: `uis camera` changes a prefab's camera; the capture job and the CAMERA
+#      sentence follow it; reset; a note's camera wish on both rewrite paths
+# Steps 5, 6, 8 and 9 print a table of the two paths; a path that did not run is a failure.
 # Exit code 0 when every check passed.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-stub.ps1 [-Keep] [-BedOnly] [-Bed <folder>]
@@ -343,14 +345,52 @@ Set-Scenario $b.Root ''
 Check ($fidRows.Count -eq 2) 'both review paths ran'
 
 Say ''
+Say '9. composition: a person changes the camera; the capture and the CAMERA sentence follow'
+Set-Scenario $b.Root "delay_ms=400`n"
+$crateAsset = 'Assets/Props/Crate.prefab'
+$r = Invoke-Uis $b @('camera', '--project', $b.Game, '--prefab', $crateAsset, '--json') 'camera-start'
+$start = $r.Json.effective
+Check ($r.Code -eq 0 -and $null -ne $start.yaw) ('start values: yaw ' + $start.yaw + ', pitch ' + $start.pitch + ' (kind preset)')
+$r = Invoke-Uis $b @('camera', '--project', $b.Game, '--prefab', $crateAsset, '--set', 'yawSign=-1', '--set', 'pitch=45', '--set', 'yaw=40', '--set', 'rotation=270,0,0', '--json') 'camera-set'
+$e = $r.Json.effective
+Check ($e.yaw -eq -40 -and $e.pitch -eq 45 -and ((@($e.rotation) | ForEach-Object { [int]$_ }) -join ',') -eq '270,0,0') 'stored: yaw -40 (left side), pitch 45, rotation 270,0,0'
+$r = Invoke-Uis $b @('camera', '--project', $b.Game, '--prefab', $crateAsset, '--set', 'pitch=200', '--json') 'camera-bad'
+Check ($r.Code -ne 0) 'a pitch out of range is refused'
+$r = Invoke-Run $b @('--prefab', $crateAsset)
+$it = $r.Report.items[0]
+Check ($it.state -eq 'ok') 'run ok with the changed composition'
+$job = Get-Content -Raw (Join-Path (Split-Path -Parent $it.capture) 'job-in.json') | ConvertFrom-Json
+$capItem = @($job.items)[0]
+Check ($capItem.yaw -eq -40 -and $capItem.pitch -eq 45) 'the capture job had the person''s camera'
+$fixed = [IO.File]::ReadAllText((Join-Path $it.jobDir 'prompt\fixed.txt'))
+Check ($fixed.Contains('looking down at about 45 degrees') -and $fixed.Contains('turned about 40 degrees') -and $fixed.Contains('the left side face')) 'the CAMERA sentence says the same (45, 40, left)'
+$r = Invoke-Uis $b @('camera', '--project', $b.Game, '--prefab', $crateAsset, '--reset', '--json') 'camera-reset'
+Check ($r.Json.effective.yaw -eq $start.yaw -and $r.Json.effective.pitch -eq $start.pitch -and $null -eq $r.Json.person) 'back to the start: the preset again, nothing stored'
+
+# A note that asks for another camera: both rewrite paths report it, the locked CAMERA sentence stays
+$camRows = @()
+Write-Utf8 (Join-Path $b.Bin 'reply.json') '{"replace":[],"add":[],"avoidAdd":[],"additions":[],"outline":"keep","camera":"front","rejected":[{"part":"show it from the front","reason":"the camera comes from the capture"}],"summaryKo":"front"}'
+foreach ($cli in 'claude', 'codex') {
+    $r = Invoke-Uis $b @('rewrite', '--kind', 'prop', '--note', 'show it from the front', '--cli', $cli, '--json') ('camera-rewrite-' + $cli)
+    $row = Get-RewriteRow $cli $r.Json
+    $row | Add-Member -NotePropertyName camera -NotePropertyValue $r.Json.diff.camera
+    $camRows += $row
+    Check ($row.pass -and $row.cli -eq $cli -and $row.camera -eq 'front' -and $row.lockedOk) ($cli + ': camera wish reported (front), CAMERA sentence kept')
+}
+Remove-Item (Join-Path $b.Bin 'reply.json')
+Check ($camRows.Count -eq 2) 'both rewrite paths ran'
+
+Say ''
 Say 'two paths, side by side'
 Say '  rewrite (same note, same model answer)'
 ($rows + @($fb)) | Format-Table path, cli, fallback, calls, replaced, added, rejected, lockedOk, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
+Say '  camera wish in a note (same note, same model answer)'
+$camRows | Format-Table path, cli, calls, camera, rejected, lockedOk, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
 Say '  review (same capture and candidate)'
 $reviewRows | Format-Table path, cli, calls, verdict, issues, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
 Say '  fidelity review and retry (same capture, a sparkle on the first picture)'
 $fidRows | Format-Table path, cands, firstReview, added, retryReview, best, correction, reviewCalls, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
-$table = @{ rewrite = @($rows + @($fb)); review = $reviewRows; fidelity = $fidRows } | ConvertTo-Json -Depth 5
+$table = @{ rewrite = @($rows + @($fb)); review = $reviewRows; fidelity = $fidRows; camera = $camRows } | ConvertTo-Json -Depth 5
 Write-Utf8 (Join-Path $b.Root 'two-paths.json') $table
 Say ''
 if ($script:failures -eq 0) { Say 'e2e-stub: all checks passed' } else { Say ('e2e-stub: ' + $script:failures + ' check(s) failed') }
