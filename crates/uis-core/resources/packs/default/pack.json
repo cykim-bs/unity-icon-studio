@@ -1,61 +1,422 @@
 {
   "schema": "unity-icon-studio.pack/1",
   "id": "default",
-  "name": { "ko": "캐주얼 두꺼운 외곽선", "en": "Casual thick outline" },
+  "name": {
+    "ko": "캐주얼 두꺼운 외곽선",
+    "en": "Casual thick outline"
+  },
   "extends": null,
   "kinds": {
     "building": {
       "capture": {
-        "front": "+z", "yaw": 28, "pitch": 30, "projection": "orthographic", "padding": 0.06, "supersample": 2,
-        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": true }
+        "front": "+z",
+        "yaw": 28,
+        "pitch": 30,
+        "projection": "orthographic",
+        "padding": 0.06,
+        "supersample": 2,
+        "light": {
+          "elevation": 50,
+          "azimuth": -30,
+          "color": [
+            1,
+            0.96,
+            0.84
+          ],
+          "ambient": 0.6,
+          "shadows": true
+        }
       },
       "layout": "bottom"
     },
     "prop": {
       "capture": {
-        "front": "+z", "yaw": 25, "pitch": 18, "projection": "orthographic", "padding": 0.06, "supersample": 2,
-        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": false }
+        "front": "+z",
+        "yaw": 25,
+        "pitch": 18,
+        "projection": "orthographic",
+        "padding": 0.06,
+        "supersample": 2,
+        "light": {
+          "elevation": 50,
+          "azimuth": -30,
+          "color": [
+            1,
+            0.96,
+            0.84
+          ],
+          "ambient": 0.6,
+          "shadows": false
+        }
       },
       "layout": "center"
     },
     "character": {
       "capture": {
-        "front": "+z", "yaw": 20, "pitch": 10, "projection": "orthographic", "padding": 0.06, "supersample": 2, "pose": "defaultState",
-        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": false }
+        "front": "+z",
+        "yaw": 20,
+        "pitch": 10,
+        "projection": "orthographic",
+        "padding": 0.06,
+        "supersample": 2,
+        "pose": "defaultState",
+        "light": {
+          "elevation": 50,
+          "azimuth": -30,
+          "color": [
+            1,
+            0.96,
+            0.84
+          ],
+          "ambient": 0.6,
+          "shadows": false
+        }
       },
       "layout": "center"
     },
     "generic": {
       "capture": {
-        "front": "+z", "yaw": 28, "pitch": 30, "projection": "orthographic", "padding": 0.06, "supersample": 2,
-        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": true }
+        "front": "+z",
+        "yaw": 28,
+        "pitch": 30,
+        "projection": "orthographic",
+        "padding": 0.06,
+        "supersample": 2,
+        "light": {
+          "elevation": 50,
+          "azimuth": -30,
+          "color": [
+            1,
+            0.96,
+            0.84
+          ],
+          "ambient": 0.6,
+          "shadows": true
+        }
       },
       "layout": "center"
     }
   },
   "kindRules": [],
-  "outline": { "color": "#753719", "widthPct": 1.45 },
-  "canvas": { "fillPct": 88, "bottomTopRatio": 0.6 },
+  "outline": {
+    "color": "#753719",
+    "widthPct": 1.45
+  },
+  "canvas": {
+    "fillPct": 88,
+    "bottomTopRatio": 0.6
+  },
   "checks": {
     "default": {
       "cornerAlphaMax": 0,
       "marginMinPx": 2,
-      "size": [0.82, 0.97],
-      "fill": [0.38, 0.72],
+      "size": [
+        0.82,
+        0.97
+      ],
+      "fill": [
+        0.38,
+        0.72
+      ],
       "centerXPx": 6,
       "largestPart": 0.98,
       "outlineDeltaE": 8,
       "outlineUniform": 0.85,
-      "outlineWidthPx": [3.0, 5.0],
+      "outlineWidthPx": [
+        3.0,
+        5.0
+      ],
       "edgeSoftness": 1.5,
-      "saturation": [0.35, 0.62],
-      "value": [0.74, 0.96],
+      "saturation": [
+        0.35,
+        0.62
+      ],
+      "value": [
+        0.74,
+        0.96
+      ],
       "innerDark": 0.06,
-      "highlight": 0.30
+      "highlight": 0.3
     },
-    "prop": { "fill": [0.25, 0.60], "size": [0.80, 0.95] }
+    "prop": {
+      "fill": [
+        0.25,
+        0.6
+      ],
+      "size": [
+        0.8,
+        0.95
+      ]
+    }
   },
   "styleRefs": [],
   "bannedTerms": [],
-  "prompt": { "templateVersion": "1", "order": ["HEADER", "GOAL", "ROLES", "STYLE", "SUBJECT", "CAMERA", "AVOID", "OUTPUT"], "blocks": {} }
+  "prompt": {
+    "templateVersion": "1",
+    "order": [
+      "HEADER",
+      "GOAL",
+      "ROLES",
+      "STYLE",
+      "SUBJECT",
+      "CAMERA",
+      "AVOID",
+      "OUTPUT"
+    ],
+    "addable": [
+      "STYLE",
+      "SUBJECT"
+    ],
+    "generator": {
+      "transparent": "Use your built-in image generation tool exactly once. Edit input image 1 as described in PROMPT; pass PROMPT to the tool as written. Request a transparent background. After saving, reply with only the absolute path of the saved image file.",
+      "flat": "Use your built-in image generation tool exactly once. Edit input image 1 as described in PROMPT; pass PROMPT to the tool as written. Request an opaque image. After saving, reply with only the absolute path of the saved image file."
+    },
+    "blocks": {
+      "HEADER": [
+        {
+          "id": "verbatim",
+          "locked": true,
+          "text": "Use this prompt exactly as written; do not rewrite it or add details."
+        }
+      ],
+      "GOAL": [
+        {
+          "id": "edit",
+          "locked": true,
+          "text": "Edit input image 1 into a single polished casual mobile-game icon. Change only the rendering style."
+        }
+      ],
+      "ROLES": [
+        {
+          "id": "inputs",
+          "locked": true,
+          "text": "Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (shape, parts, proportions, colors and viewpoint).",
+          "when": {
+            "refs": false
+          }
+        },
+        {
+          "id": "inputs",
+          "locked": true,
+          "text": "Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (shape, parts, proportions, colors and viewpoint). Input images 2 to {lastRef} are style references: match only how they are drawn (shading, saturation, level of simplification, framing) and take nothing else from them; do not copy their objects, emblems, colors, characters or layout. If the capture and a reference disagree about the subject, the capture wins.",
+          "when": {
+            "refs": true
+          }
+        }
+      ],
+      "STYLE": [
+        {
+          "id": "look",
+          "locked": false,
+          "text": "Style: cute stylized 3D render with a soft clay / glossy plastic look, chunky simplified shapes with rounded bevelled edges and slightly chibi proportions (oversized top part, short body, enlarged key parts)."
+        },
+        {
+          "id": "color",
+          "locked": false,
+          "text": "Color: bright, saturated pastel palette with a few strong accent colors; higher saturation and contrast than the capture; no haze, no fog, no bloom."
+        },
+        {
+          "id": "light",
+          "locked": false,
+          "text": "Lighting: warm key light from the upper left front, strong soft ambient so shadow sides stay warm and colorful (never black), clear ambient occlusion in creases, one or two crisp glossy highlights on roofs, glass and metal."
+        },
+        {
+          "id": "surface",
+          "locked": false,
+          "text": "Surfaces: clean flat-shaded materials with no photographic texture and no noise; wood is warm orange-brown with two or three grain lines, stone and brick are large cream blocks, glass is warm glowing yellow or sky blue with a white diagonal glint."
+        },
+        {
+          "id": "outline",
+          "locked": true,
+          "text": "No outline: keep a crisp, clean silhouette edge with no stroke, no sticker border and no glow.",
+          "when": {
+            "outline": [
+              "code",
+              "none"
+            ]
+          }
+        },
+        {
+          "id": "outline",
+          "locked": true,
+          "text": "Outline: one continuous thick dark chocolate-brown outline ({outlineColor}) around the whole outer silhouette, uniform width about {outlineWidthPct}% of the image width, crisp edge; no inner ink lines.",
+          "when": {
+            "outline": "model"
+          }
+        },
+        {
+          "id": "charms",
+          "locked": false,
+          "text": "Small charm details are allowed: one to three tiny four-point sparkles or hearts touching the silhouette, matching the object's theme."
+        }
+      ],
+      "SUBJECT": [
+        {
+          "id": "keep",
+          "locked": true,
+          "text": "Subject: the building exactly as in the capture; keep its silhouette, roof shape, color layout, signature emblem and openings recognizable.",
+          "when": {
+            "kind": "building"
+          }
+        },
+        {
+          "id": "base",
+          "locked": false,
+          "text": "Keep it standing on a small thick base slab of rounded cream / peach bricks (about two to three tiles on each side).",
+          "when": {
+            "kind": "building"
+          }
+        },
+        {
+          "id": "simplify",
+          "locked": false,
+          "text": "Simplify tiny details so it reads at 256 px: enlarge windows, signs and the roof emblem, drop fine patterns.",
+          "when": {
+            "kind": "building"
+          }
+        },
+        {
+          "id": "exclude",
+          "locked": false,
+          "text": "No characters, no people, no surrounding ground, trees or props outside the base slab.",
+          "when": {
+            "kind": "building"
+          }
+        },
+        {
+          "id": "keep",
+          "locked": true,
+          "text": "Subject: the single object exactly as in the capture; keep its shape, colors and key features recognizable.",
+          "when": {
+            "kind": "prop"
+          }
+        },
+        {
+          "id": "base",
+          "locked": false,
+          "text": "It floats with no ground, no base and no cast shadow.",
+          "when": {
+            "kind": "prop"
+          }
+        },
+        {
+          "id": "simplify",
+          "locked": false,
+          "text": "Slightly exaggerate its most characteristic part.",
+          "when": {
+            "kind": "prop"
+          }
+        },
+        {
+          "id": "exclude",
+          "locked": false,
+          "text": "No mannequin, no character wearing it, no hands.",
+          "when": {
+            "kind": "prop"
+          }
+        },
+        {
+          "id": "keep",
+          "locked": true,
+          "text": "Subject: the character exactly as in the capture; keep its face, proportions, pose, colors and outfit recognizable, and do not turn it into a different character.",
+          "when": {
+            "kind": "character"
+          }
+        },
+        {
+          "id": "base",
+          "locked": false,
+          "text": "It stands with no ground and no cast shadow; keep any base that is part of the capture.",
+          "when": {
+            "kind": "character"
+          }
+        },
+        {
+          "id": "simplify",
+          "locked": false,
+          "text": "Simplify tiny details so it reads at 256 px; keep the eyes and the face large and clear.",
+          "when": {
+            "kind": "character"
+          }
+        },
+        {
+          "id": "exclude",
+          "locked": false,
+          "text": "No other characters and no props that are not in the capture.",
+          "when": {
+            "kind": "character"
+          }
+        },
+        {
+          "id": "keep",
+          "locked": true,
+          "text": "Subject: the object exactly as in the capture; keep its silhouette, parts, color layout and proportions recognizable.",
+          "when": {
+            "kind": "generic"
+          }
+        },
+        {
+          "id": "base",
+          "locked": false,
+          "text": "Keep any base or stand that is attached to it in the capture; add no ground of your own.",
+          "when": {
+            "kind": "generic"
+          }
+        },
+        {
+          "id": "simplify",
+          "locked": false,
+          "text": "Simplify tiny details so it reads at 256 px.",
+          "when": {
+            "kind": "generic"
+          }
+        },
+        {
+          "id": "exclude",
+          "locked": false,
+          "text": "No characters and no extra objects that are not in the capture.",
+          "when": {
+            "kind": "generic"
+          }
+        }
+      ],
+      "CAMERA": [
+        {
+          "id": "view",
+          "locked": true,
+          "text": "Keep the capture's viewpoint exactly: camera looking down at about {pitch} degrees, object turned about {yaw} degrees so the front face and the {side} side face are visible, orthographic-like projection with parallel vertical edges, no wide-angle distortion. Do not rotate, re-pose or re-frame the object."
+        }
+      ],
+      "AVOID": [
+        {
+          "id": "tech",
+          "locked": true,
+          "text": "Avoid: background, floor plane, scenery, drop shadow or glow outside the silhouette, text, letters, numbers, logos, watermark, frame, border, rounded-square app-icon tile, multiple views, sprite sheet, cropped or cut-off parts."
+        },
+        {
+          "id": "look",
+          "locked": false,
+          "text": "Also avoid: photorealism, gritty texture, dark or desaturated palette, inner sketch lines, extra objects not in the capture."
+        }
+      ],
+      "OUTPUT": [
+        {
+          "id": "spec",
+          "locked": true,
+          "text": "Output: one single icon on a square canvas with a fully transparent background (real alpha, not a drawn checkerboard); the whole object visible, centered horizontally, about {fillPct}% of the canvas on its longest side, nothing touching the canvas edge.",
+          "when": {
+            "background": "transparent"
+          }
+        },
+        {
+          "id": "spec",
+          "locked": true,
+          "text": "Output: one single icon on a square canvas with a plain flat solid {keyColor} background (one uniform color, no gradient, no shadow on it); the whole object visible, centered horizontally, about {fillPct}% of the canvas on its longest side, nothing touching the canvas edge.",
+          "when": {
+            "background": "flat"
+          }
+        }
+      ]
+    }
+  }
 }

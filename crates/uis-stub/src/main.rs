@@ -13,6 +13,7 @@
 //!   file, prints `args ok`, ends with that code (a capture hook).
 //! - `unity`: the Unity editor when started with `-batchmode`, else the `unity` CLI
 //!   (`--version`, `status --json`, `command "script run" ...`). See [`unity`].
+//! - `codex`, `claude`: made-up LLM command lines (text answers, pictures, failures). See [`llm`].
 //!
 //! The Unity roles read `stub-scenario.txt` next to the program (`key=value` lines), not the
 //! environment: the batch editor is started through WMI and gets the user's environment, not the
@@ -21,6 +22,7 @@
 use std::io::{Read, Write};
 use std::time::Duration;
 
+mod llm;
 mod unity;
 
 fn own_name() -> bool {
@@ -54,6 +56,8 @@ fn main() {
         "exit" => exit(&args),
         "args" => args_log(&args),
         "unity" => unity::main(&args),
+        "codex" => llm::codex(&args),
+        "claude" => llm::claude(&args),
         other => {
             eprintln!("uis-stub: unknown role {other:?}");
             64

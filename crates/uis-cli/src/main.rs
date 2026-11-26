@@ -19,6 +19,20 @@ commands:
   recover [--status] [--json]
                        finish batch captures left by an earlier run (remove the temporary
                        folder, put rewritten files back, run the after-capture hooks)
+  readiness [--json]   Codex, Claude and the unity CLI: found, version, signed in, image runner
+  codex-copy [--json]  copy the Codex desktop app's codex*.exe to the tool's folder (about 0.5 GB)
+  prompt --kind <kind> [--refs N] [--yaw D] [--pitch D] [--outline code|model|none]
+         [--background transparent|flat] [--pack <id>] [--json]
+                       the fixed prompt (no LLM)
+  rewrite --kind <kind> --note <text> [--cli claude|codex] [--refs N] [--yaw D] [--pitch D]
+          [--pack <id>] [--out <folder>] [--json]
+                       work a note into the fixed prompt (an empty note calls nothing)
+  generate --input <capture.png> --kind <kind> [--note <text>] [--cli claude|codex]
+           [--ref <png>...] [--no-pack-refs] [--candidates N] [--ignore-user-config true|false]
+           [--name <prefab>] [--pack <id>] [--out <job folder>] [--prompt-only] [--json]
+                       make raw icon pictures with Codex (counts against the image limit)
+  review --capture <png> --candidate <png> --kind <kind> [--cli claude|codex] [--json]
+                       ask an LLM whether a picture is usable ({pass, issues})
   hub [--json]         the projects Unity Hub lists
   packs [--json]       style packs (the default one and local ones)
   home [--json]        the tool's home folder and settings file
@@ -40,7 +54,9 @@ impl Args {
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--json" => out.json = true,
-                "--pack" | "--project" | "--mode" | "--out" => {
+                "--pack" | "--project" | "--mode" | "--out" | "--kind" | "--note" | "--cli" | "--refs" | "--yaw"
+                | "--pitch" | "--outline" | "--background" | "--input" | "--ref" | "--candidates"
+                | "--ignore-user-config" | "--name" | "--capture" | "--candidate" => {
                     if let Some(v) = it.next() {
                         out.values.push((a, v));
                     }
@@ -83,6 +99,12 @@ fn main() {
         Some("probe") => probe(&args),
         Some("capture") => capture(&args),
         Some("recover") => recover(&args),
+        Some("readiness") => readiness(&args),
+        Some("codex-copy") => codex_copy(&args),
+        Some("prompt") => prompt_cmd(&args),
+        Some("rewrite") => rewrite_cmd(&args),
+        Some("generate") => generate_cmd(&args),
+        Some("review") => review_cmd(&args),
         Some("hub") => {
             print_value(&serde_json::to_value(uis_core::project::hub_projects()).unwrap_or_default(), true);
             0
@@ -290,6 +312,236 @@ fn recover(args: &Args) -> i32 {
         }
     }
     0
+}
+
+// ------------------------------------------------------------------ prompts and CLIs
+
+fn readiness(args: &Args) -> i32 {
+    let home = Home::resolve();
+    let _ = home.ensure();
+    let s = uis_core::settings::load(&home);
+    let r = uis_core::cli::readiness(&home, &s);
+    if args.json {
+        print_value(&serde_json::to_value(&r).unwrap_or_default(), true);
+    } else {
+        for (name, st) in [("codex", &r.codex), ("claude", &r.claude), ("unity", &r.unity_cli)] {
+            println!(
+                "{name:<7} found {:<5} logged in {:<5} image tool {:<5} {}  {}",
+                st.found,
+                st.logged_in.map_or("-".into(), |b| b.to_string()),
+                st.image_tool.map_or("-".into(), |b| b.to_string()),
+                st.version.as_deref().unwrap_or(""),
+                st.problem.as_deref().unwrap_or("")
+            );
+        }
+        if let Some(app) = &r.codex_app {
+            println!("codex app {}  {} bytes  copy needed {}", app.version, app.bytes, r.codex_copy_needed);
+        }
+    }
+    0
+}
+
+fn codex_copy(args: &Args) -> i32 {
+    let home = Home::resolve();
+    let _ = home.ensure();
+    let mut last = 0u64;
+    let r = uis_core::cli::codex::copy_from_app(&home, &mut |done, total| {
+        if done == total || done >= last + (64 << 20) {
+            eprintln!("copy {} / {} MB", done >> 20, total >> 20);
+            last = done;
+        }
+    });
+    match r {
+        Ok(info) => {
+            print_value(&serde_json::to_value(&info).unwrap_or_default(), args.json);
+            0
+        }
+        Err(e) => fail(args, &e),
+    }
+}
+
+fn pack_arg(args: &Args, home: &Home) -> Result<uis_core::packs::Pack, String> {
+    uis_core::packs::load(home, args.value("--pack").unwrap_or(uis_core::packs::DEFAULT_ID)).map_err(|e| format!("pack:{e}"))
+}
+
+fn num(args: &Args, name: &str) -> Option<f64> {
+    args.value(name).and_then(|v| v.parse().ok())
+}
+
+fn context_arg(args: &Args, pack: &uis_core::packs::Pack, s: &uis_core::settings::Settings) -> Result<uis_core::prompt::PromptContext, String> {
+    let kind = args.value("--kind").unwrap_or("generic");
+    if !uis_core::packs::KINDS.contains(&kind) {
+        return Err(format!("badKind:{kind}"));
+    }
+    let refs = args.value("--refs").and_then(|v| v.parse().ok()).unwrap_or(0);
+    let mut ctx = uis_core::generate::context(pack, s, kind, refs, num(args, "--yaw"), num(args, "--pitch"));
+    if let Some(o) = args.value("--outline") {
+        ctx.outline = o.into();
+    }
+    if let Some(b) = args.value("--background") {
+        ctx.background = b.into();
+    }
+    Ok(ctx)
+}
+
+fn prompt_cmd(args: &Args) -> i32 {
+    let home = Home::resolve();
+    let s = uis_core::settings::load(&home);
+    let built = pack_arg(args, &home).and_then(|pack| {
+        let ctx = context_arg(args, &pack, &s)?;
+        uis_core::prompt::assemble(&pack, &ctx)
+    });
+    match built {
+        Ok(a) => {
+            if args.json {
+                print_value(&serde_json::to_value(&a).unwrap_or_default(), true);
+            } else {
+                print!("{}", a.text);
+            }
+            0
+        }
+        Err(e) => fail(args, &e),
+    }
+}
+
+fn rewrite_cmd(args: &Args) -> i32 {
+    let home = Home::resolve();
+    let _ = home.ensure();
+    let s = uis_core::settings::load(&home);
+    let pack = match pack_arg(args, &home) {
+        Ok(p) => p,
+        Err(e) => return fail(args, &e),
+    };
+    let fixed = match context_arg(args, &pack, &s).and_then(|ctx| uis_core::prompt::assemble(&pack, &ctx)) {
+        Ok(a) => a,
+        Err(e) => return fail(args, &e),
+    };
+    let note = args.value("--note").unwrap_or("");
+    let cli = args.value("--cli").map(str::to_string).unwrap_or_else(|| s.llm.rewriter.clone());
+    let clis = uis_core::cli::Clis { home: &home, settings: &s };
+    let started = std::time::Instant::now();
+    let r = uis_core::cli::rewrite(&pack, &fixed, note, &cli, &clis);
+    if let Some(dir) = args.value("--out").map(PathBuf::from) {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(dir.join("fixed.txt"), &r.fixed.text);
+        let _ = std::fs::write(dir.join("final.txt"), &r.final_text);
+        let _ = std::fs::write(dir.join("diff.json"), serde_json::to_string_pretty(&r.diff).unwrap_or_default());
+        let _ = std::fs::write(dir.join("report.json"), serde_json::to_string_pretty(&r).unwrap_or_default());
+        if let Some(q) = &r.request {
+            let _ = std::fs::write(dir.join("rewrite-request.txt"), q);
+        }
+    }
+    if args.json {
+        let mut v = serde_json::to_value(&r).unwrap_or_default();
+        v["elapsedMs"] = json!(started.elapsed().as_millis() as u64);
+        print_value(&v, true);
+    } else {
+        println!(
+            "cli {}  fallback from {}  calls {}  {} ms",
+            r.cli.as_deref().unwrap_or("-"),
+            r.fallback_from.as_deref().unwrap_or("-"),
+            r.calls.len(),
+            started.elapsed().as_millis()
+        );
+        if let Some(rw) = &r.rewritten {
+            for st in rw.sentences.iter().filter(|x| x.status != uis_core::prompt::Status::Same) {
+                println!("  {:?} {}: {}", st.status, st.id, st.text);
+            }
+            for x in &rw.rejected {
+                println!("  rejected ({}): {} - {}", x.by, x.part, x.reason);
+            }
+            println!("  outline {}  camera {}  {}", rw.outline, rw.camera, rw.summary_ko);
+        }
+        if let Some(f) = &r.failure {
+            println!("failed {}", f.code());
+        }
+    }
+    if r.ok {
+        0
+    } else {
+        1
+    }
+}
+
+fn generate_cmd(args: &Args) -> i32 {
+    let Some(input) = args.value("--input").map(PathBuf::from) else {
+        eprintln!("uis generate: give --input <capture.png>\n\n{USAGE}");
+        return 2;
+    };
+    let home = Home::resolve();
+    let _ = home.ensure();
+    let s = uis_core::settings::load(&home);
+    let req = uis_core::generate::GenerateRequest {
+        input,
+        kind: args.value("--kind").unwrap_or("generic").into(),
+        pack_id: args.value("--pack").map(str::to_string),
+        name: args.value("--name").map(str::to_string),
+        note: args.value("--note").unwrap_or("").into(),
+        rewriter: args.value("--cli").map(str::to_string),
+        refs: args.all("--ref").into_iter().map(PathBuf::from).collect(),
+        no_pack_refs: args.has("--no-pack-refs"),
+        yaw: num(args, "--yaw"),
+        pitch: num(args, "--pitch"),
+        candidates: args.value("--candidates").and_then(|v| v.parse().ok()),
+        ignore_user_config: args.value("--ignore-user-config").map(|v| v == "true" || v == "1"),
+        out_dir: args.value("--out").map(PathBuf::from),
+        prompt_only: args.has("--prompt-only"),
+        codex_home: None,
+    };
+    let r = uis_core::generate::generate(&home, &s, &req);
+    if args.json {
+        print_value(&serde_json::to_value(&r).unwrap_or_default(), true);
+    } else {
+        println!("job {}  ok {}  {} ms", r.job_dir, r.ok, r.elapsed_ms);
+        for c in &r.candidates {
+            println!(
+                "  {}  stage {:?}  {}x{} alpha {}  {} ms  {}",
+                c.raw.as_deref().unwrap_or("-"),
+                c.harvest_stage,
+                c.width,
+                c.height,
+                c.has_alpha,
+                c.call.elapsed_ms,
+                c.call.code
+            );
+        }
+        if let Some(e) = &r.error {
+            println!("error {e}");
+        }
+    }
+    if r.ok {
+        0
+    } else {
+        1
+    }
+}
+
+fn review_cmd(args: &Args) -> i32 {
+    let (Some(capture), Some(candidate)) = (args.value("--capture"), args.value("--candidate")) else {
+        eprintln!("uis review: give --capture <png> --candidate <png>\n\n{USAGE}");
+        return 2;
+    };
+    let home = Home::resolve();
+    let _ = home.ensure();
+    let s = uis_core::settings::load(&home);
+    let kind = args.value("--kind").unwrap_or("generic");
+    let cli = args.value("--cli").unwrap_or(if s.llm.review == "codex" { "codex" } else { "claude" });
+    let (capture, candidate) = (std::path::Path::new(capture), std::path::Path::new(candidate));
+    let (result, call) = if cli == "codex" {
+        uis_core::cli::codex::review(&home, &s, capture, candidate, &uis_core::cli::claude::review_prompt(kind, false))
+    } else {
+        uis_core::cli::claude::review(&home, &s, capture, candidate, &uis_core::cli::claude::review_prompt(kind, true))
+    };
+    let value = match &result {
+        Ok(v) => json!({ "ok": true, "review": v, "call": call }),
+        Err(f) => json!({ "ok": false, "failure": f, "call": call }),
+    };
+    print_value(&value, true);
+    if result.is_ok() {
+        0
+    } else {
+        1
+    }
 }
 
 fn print_value(value: &Value, json_out: bool) {

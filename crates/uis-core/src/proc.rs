@@ -21,9 +21,11 @@ use std::time::{Duration, Instant};
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-/// Prefixes removed from a Claude child: a session variable would make it think it runs inside
-/// another session, and an API key would quietly switch it to API billing.
-pub const CLAUDE_ENV_PREFIXES: &[&str] = &["CLAUDECODE", "CLAUDE_CODE_", "ANTHROPIC_"];
+/// Prefixes removed from a Claude child: a session variable (`CLAUDECODE`, `CLAUDE_CODE_*`,
+/// `CLAUDE_AGENT_SDK_*`, `CLAUDE_EFFORT` ...) would tie it to the session that started the tool,
+/// and an API key would quietly switch it to API billing. The Claude runner sets
+/// `CLAUDE_CONFIG_DIR` again when the parent has it (where a person keeps their login).
+pub const CLAUDE_ENV_PREFIXES: &[&str] = &["CLAUDE", "ANTHROPIC_"];
 /// Removed from a Codex child unless the settings keep it (`codex.keepApiKeyEnv`).
 pub const CODEX_ENV_REMOVE: &[&str] = &["OPENAI_API_KEY"];
 

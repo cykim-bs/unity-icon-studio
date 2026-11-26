@@ -2,6 +2,8 @@
 //! functions, so everything can be checked and tuned without the window.
 
 pub mod capture;
+pub mod cli;
+pub mod generate;
 pub mod home;
 pub mod hooks;
 pub mod image;
@@ -11,6 +13,7 @@ pub mod prefabs;
 pub mod proc;
 pub mod project;
 pub mod projects;
+pub mod prompt;
 pub mod settings;
 pub mod unity;
 
