@@ -1314,8 +1314,11 @@ async function usePack(id: string) {
   try {
     await call("project_set_pack", { id: currentId, packId: id });
     await loadProjects();
+    // Kinds come from the pack's rules: the grid waits for the new reading instead of showing the
+    // old kinds next to the new pack (the selection is kept)
+    scan = null;
     render();
-    void runScan(false);
+    await runScan(false);
   } catch (e) {
     flashStatus(errorText(String(e)), 5000);
   }
