@@ -225,7 +225,13 @@ fn run(
         report.refs.push(r.display().to_string());
     }
 
-    let ctx = context(&pack, settings, &req.kind, refs.len(), req.yaw, req.pitch);
+    let mut ctx = context(&pack, settings, &req.kind, refs.len(), req.yaw, req.pitch);
+    if ctx.background == "flat" && !settings.generate.key_color.starts_with('#') {
+        // `auto`: the key hue least used by the capture
+        if let Ok(cap) = crate::post::raster::Raster::open(&capture) {
+            ctx.key_color = crate::post::alpha::auto_key_color(&cap).into();
+        }
+    }
     let fixed = prompt::assemble(&pack, &ctx)?;
     report.template_version = fixed.template_version.clone();
     report.fixed = fixed.text.clone();
@@ -275,11 +281,19 @@ fn run(
     Ok(())
 }
 
+/// The prefab's name for the job (export names use it).
+fn job_dir_name(req: &GenerateRequest) -> String {
+    req.name
+        .clone()
+        .unwrap_or_else(|| req.input.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "item".into()))
+}
+
 fn write_job(job_dir: &Path, req: &GenerateRequest, report: &GenerateReport) -> Result<(), String> {
     let rw = report.rewrite.as_ref();
     let doc = json!({
         "schema": JOB_SCHEMA,
         "input": req.input.display().to_string(),
+        "name": job_dir_name(req),
         "kind": report.kind,
         "packId": report.pack_id,
         "templateVersion": report.template_version,

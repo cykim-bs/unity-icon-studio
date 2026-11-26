@@ -5,6 +5,8 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use uis_core::home::Home;
 
+mod post_cmds;
+
 const USAGE: &str = "usage: uis <command> [options]
 
 commands:
@@ -29,10 +31,22 @@ commands:
                        work a note into the fixed prompt (an empty note calls nothing)
   generate --input <capture.png> --kind <kind> [--note <text>] [--cli claude|codex]
            [--ref <png>...] [--no-pack-refs] [--candidates N] [--ignore-user-config true|false]
-           [--name <prefab>] [--pack <id>] [--out <job folder>] [--prompt-only] [--json]
-                       make raw icon pictures with Codex (counts against the image limit)
+           [--name <prefab>] [--pack <id>] [--out <job folder>] [--prompt-only] [--post] [--json]
+                       make raw icon pictures with Codex (counts against the image limit);
+                       --post also post-processes and checks each picture
   review --capture <png> --candidate <png> --kind <kind> [--cli claude|codex] [--json]
                        ask an LLM whether a picture is usable ({pass, issues})
+  post --job <folder> [--cand N] [--set key=value...] [--json]
+  post --raw <png> --out <folder> [--kind <kind>] [--capture <png>] [--pack <id>] [--set key=value...]
+                       outline, background, layout and sizes of a raw picture, then the checks
+                       (keys: outline widthPct aaPx workScale fillPct layout background compose ...)
+  check <png>... [--kind <kind>] [--pack <id>] [--no-outline] [--json]
+                       pixel checks of finished icons against the pack's ranges
+  board --out <png> [--title <text>] [--spec <rows.json>] [--job <folder> [--ref <png>]]...
+                       a comparison board: capture | raw | icon | small sizes | on white and dark | reference
+  export --job <folder> --to <folder> [--cand N] [--sizes 256,512,1024] [--name <prefab>] [--rule <rule>]
+                       copy finished icons out (never into a Unity project)
+  jobs [--limit N]     job folders, newest first
   hub [--json]         the projects Unity Hub lists
   packs [--json]       style packs (the default one and local ones)
   home [--json]        the tool's home folder and settings file
@@ -56,7 +70,8 @@ impl Args {
                 "--json" => out.json = true,
                 "--pack" | "--project" | "--mode" | "--out" | "--kind" | "--note" | "--cli" | "--refs" | "--yaw"
                 | "--pitch" | "--outline" | "--background" | "--input" | "--ref" | "--candidates"
-                | "--ignore-user-config" | "--name" | "--capture" | "--candidate" => {
+                | "--ignore-user-config" | "--name" | "--capture" | "--candidate" | "--set" | "--raw" | "--job" | "--cand"
+                | "--to" | "--sizes" | "--spec" | "--title" | "--rule" | "--limit" => {
                     if let Some(v) = it.next() {
                         out.values.push((a, v));
                     }
@@ -105,6 +120,11 @@ fn main() {
         Some("rewrite") => rewrite_cmd(&args),
         Some("generate") => generate_cmd(&args),
         Some("review") => review_cmd(&args),
+        Some("post") => post_cmds::post_cmd(&args),
+        Some("check") => post_cmds::check_cmd(&args),
+        Some("board") => post_cmds::board_cmd(&args),
+        Some("export") => post_cmds::export_cmd(&args),
+        Some("jobs") => post_cmds::jobs_cmd(&args),
         Some("hub") => {
             print_value(&serde_json::to_value(uis_core::project::hub_projects()).unwrap_or_default(), true);
             0
@@ -489,7 +509,23 @@ fn generate_cmd(args: &Args) -> i32 {
         codex_home: None,
     };
     let r = uis_core::generate::generate(&home, &s, &req);
-    if args.json {
+    let mut posted = Vec::new();
+    if args.has("--post") {
+        for (i, c) in r.candidates.iter().enumerate() {
+            if c.ok {
+                let job = PathBuf::from(&r.job_dir);
+                match uis_core::jobs::post_candidate(&home, &s, &job, i as u32 + 1, &json!({})) {
+                    Ok(p) => posted.push(serde_json::to_value(&p).unwrap_or_default()),
+                    Err(e) => posted.push(json!({ "candidate": i + 1, "error": e })),
+                }
+            }
+        }
+    }
+    if args.json && args.has("--post") {
+        let mut v = serde_json::to_value(&r).unwrap_or_default();
+        v["post"] = Value::Array(posted);
+        print_value(&v, true);
+    } else if args.json {
         print_value(&serde_json::to_value(&r).unwrap_or_default(), true);
     } else {
         println!("job {}  ok {}  {} ms", r.job_dir, r.ok, r.elapsed_ms);

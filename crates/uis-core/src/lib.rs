@@ -1,14 +1,19 @@
 //! Icon Studio core. The desktop app (src-tauri) and the command line (`uis`) call the same
 //! functions, so everything can be checked and tuned without the window.
 
+pub mod board;
 pub mod capture;
+pub mod checks;
 pub mod cli;
+pub mod export;
 pub mod generate;
 pub mod home;
 pub mod hooks;
 pub mod image;
+pub mod jobs;
 pub mod journal;
 pub mod packs;
+pub mod post;
 pub mod prefabs;
 pub mod proc;
 pub mod project;

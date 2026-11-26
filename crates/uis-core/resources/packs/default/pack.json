@@ -109,10 +109,10 @@
   "checks": {
     "default": {
       "cornerAlphaMax": 0,
-      "marginMinPx": 2,
+      "marginMinPx": 1,
       "size": [
         0.82,
-        0.97
+        0.995
       ],
       "fill": [
         0.38,
@@ -120,13 +120,13 @@
       ],
       "centerXPx": 6,
       "largestPart": 0.98,
-      "outlineDeltaE": 8,
-      "outlineUniform": 0.85,
+      "outlineDeltaE": 16,
+      "outlineUniform": 0.75,
       "outlineWidthPx": [
         3.0,
         5.0
       ],
-      "edgeSoftness": 1.5,
+      "edgeSoftness": 1.7,
       "saturation": [
         0.35,
         0.62
@@ -136,7 +136,10 @@
         0.96
       ],
       "innerDark": 0.06,
-      "highlight": 0.3
+      "highlight": 0.3,
+      "iouMin": 0.75,
+      "rawLargestPart": 0.9,
+      "modelOutlinePx": 1.5
     },
     "prop": {
       "fill": [
@@ -147,6 +150,9 @@
         0.8,
         0.95
       ]
+    },
+    "building": {
+      "iouMin": 0.8
     }
   },
   "styleRefs": [],
@@ -198,7 +204,7 @@
         {
           "id": "inputs",
           "locked": true,
-          "text": "Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (shape, parts, proportions, colors and viewpoint). Input images 2 to {lastRef} are style references: match only how they are drawn (shading, saturation, level of simplification, framing) and take nothing else from them; do not copy their objects, emblems, colors, characters or layout. If the capture and a reference disagree about the subject, the capture wins.",
+          "text": "Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (shape, parts, proportions, colors and viewpoint). {refImages}: match only how they are drawn (shading, saturation, level of simplification, framing) and take nothing else from them; do not copy their objects, emblems, colors, characters or layout. If the capture and a reference disagree about the subject, the capture wins.",
           "when": {
             "refs": true
           }

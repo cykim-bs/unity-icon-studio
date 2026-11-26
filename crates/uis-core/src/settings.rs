@@ -94,6 +94,9 @@ pub struct Codex {
     pub image_timeout_sec: u32,
     pub text_timeout_sec: u32,
     pub ignore_user_config: bool,
+    /// Leaves out skills, app connectors, plugins, memories and hooks of the Codex session (its
+    /// global AGENTS.md cannot be left out)
+    pub trim_context: bool,
     pub clean_generated_images: bool,
     pub keep_api_key_env: bool,
 }
@@ -189,6 +192,7 @@ impl Default for Codex {
             image_timeout_sec: 300,
             text_timeout_sec: 90,
             ignore_user_config: true,
+            trim_context: true,
             clean_generated_images: true,
             keep_api_key_env: false,
         }

@@ -255,11 +255,27 @@ fn copy_with_progress(src: &Path, dst: &Path, tick: &mut dyn FnMut(u64)) -> std:
 
 // ------------------------------------------------------------------ runs
 
+/// Flags that leave the user's skills, app connectors, plugins, memories and hooks out of the
+/// session (`codex.trimContext`). The image tool stays (checked with codex-cli 0.171).
+pub const TRIM_ARGS: &[&str] = &[
+    "-c", "skills.include_instructions=false",
+    "-c", "include_apps_instructions=false",
+    "--disable", "apps",
+    "--disable", "plugins",
+    "--disable", "memories",
+    "--disable", "tool_suggest",
+    "--disable", "skill_search",
+    "--disable", "hooks",
+    "--disable", "goals",
+];
+
 fn exec_args(cmd: Cmd, settings: &Settings, ignore_user_config: bool, dir: &Path) -> Cmd {
-    let _ = settings;
     let mut cmd = cmd.args(["exec", "--ephemeral"]);
     if ignore_user_config {
         cmd = cmd.arg("--ignore-user-config");
+    }
+    if settings.codex.trim_context {
+        cmd = cmd.args(TRIM_ARGS.iter().copied());
     }
     cmd.args(["--ignore-rules", "--skip-git-repo-check", "-s", "read-only", "-C"]).arg(dir.as_os_str())
 }

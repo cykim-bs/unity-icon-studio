@@ -12,7 +12,7 @@
 //! Text answers: `reply-<n>.json` next to the program for the n-th call of that role (1-based),
 //! else `reply.json`, else a small edit list. Every call appends one line to `calls.log` next to
 //! the program (`role<TAB>kind<TAB>stdin bytes<TAB>names of CLAUDE*, ANTHROPIC*, OPENAI* variables`)
-//! and writes its stdin to `<role>-stdin-<n>.txt`.
+//! and writes its stdin to `<role>-stdin-<n>.txt` (Codex also its arguments to `codex-args-<n>.txt`).
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -113,6 +113,8 @@ pub fn codex(args: &[String]) -> i32 {
     let image = !images.is_empty() && value_after(args, "--output-schema").is_none();
     let stdin = read_stdin();
     let n = log_call("codex", if image { "image" } else { "text" }, &stdin);
+    let _ = std::fs::write(here().join(format!("codex-args-{n}.txt")), args.join("
+"));
     let thread = format!("00000000-0000-7000-8000-{n:012}");
     let out_file = value_after(args, "-o").map(PathBuf::from);
     let write_last = |text: &str| {

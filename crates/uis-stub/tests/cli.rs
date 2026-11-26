@@ -316,3 +316,51 @@ fn review_with_claude() {
     assert_eq!(call.code, "ok");
     assert_eq!(bed.calls()[0].1, "review");
 }
+
+#[test]
+fn picture_then_post_checks_and_export() {
+    let bed = Bed::new("post", "");
+    let mut req = bed.request("prop", "");
+    req.name = Some("Crate".into());
+    let r = generate::generate(&bed.home, &bed.settings(), &req);
+    assert!(r.ok, "{:?}", r.error);
+    // The session is kept lean by default
+    let args = read(&bed.bin.join("codex-args-1.txt"));
+    assert!(args.contains("--disable\napps") && args.contains("skills.include_instructions=false"), "{args}");
+    let job = bed.root.join("job");
+    let p = uis_core::jobs::post_candidate(&bed.home, &bed.settings(), &job, 1, &json!({})).expect("post");
+    assert_eq!(p.post.alpha_source, "native");
+    assert!(job.join("post/cand-01/icon-256.png").is_file() && job.join("post/cand-01/master-1024.png").is_file());
+    assert!(job.join("post/cand-01/checks.json").is_file() && job.join("post/cand-01/options.json").is_file());
+    let s = &p.sizes[0];
+    // The stub picture is dark near its corner, so only the stroke color is checked here
+    assert!(s.checks.metrics.outline_delta_e < 2.0, "{}", s.checks.metrics.outline_color);
+    assert!(p.generated.iou.unwrap() > 0.8, "{:?}", p.generated.iou);
+    // Overrides from the command line or the window
+    let q = uis_core::jobs::post_candidate(&bed.home, &bed.settings(), &job, 1, &json!({ "outline": "none" })).unwrap();
+    assert_eq!((q.options.outline.as_str(), q.post.layout.stroke_px), ("none", 0.0));
+    assert!(!q.sizes[0].checks.items.iter().any(|i| i.group == "outline"));
+    // Export: out of the job, never into a Unity project
+    let out = bed.root.join("out");
+    let icons = vec![(256, job.join("post/cand-01/icon-256.png"))];
+    let e = uis_core::export::export(&icons, &out, "icon_{prefab}", "Crate", &bed.settings(), Some(&job));
+    assert!(e.ok && out.join("icon_Crate.png").is_file(), "{:?}", e.error);
+    let proj = bed.root.join("Game");
+    std::fs::create_dir_all(proj.join("Assets")).unwrap();
+    std::fs::create_dir_all(proj.join("ProjectSettings")).unwrap();
+    let e = uis_core::export::export(&icons, &proj.join("Assets/UI"), "icon_{prefab}", "Crate", &bed.settings(), None);
+    assert!(!e.ok && e.error.unwrap().starts_with("insideProject:"));
+    let jobj: Value = serde_json::from_str(&read(&job.join("job.json"))).unwrap();
+    assert_eq!(jobj["name"], json!("Crate"));
+}
+
+#[test]
+fn lean_session_flags_can_be_turned_off() {
+    let bed = Bed::new("notrim", "");
+    let mut s = bed.settings();
+    s.codex.trim_context = false;
+    let r = generate::generate(&bed.home, &s, &bed.request("building", ""));
+    assert!(r.ok);
+    let args = read(&bed.bin.join("codex-args-1.txt"));
+    assert!(!args.contains("--disable") && args.contains("--ignore-user-config"), "{args}");
+}

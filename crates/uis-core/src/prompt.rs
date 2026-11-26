@@ -138,6 +138,10 @@ fn fill(text: &str, ctx: &PromptContext, pack: &Pack) -> String {
         ("{side}", side.to_string()),
         ("{keyColor}", ctx.key_color.clone()),
         ("{lastRef}", (ctx.refs + 1).to_string()),
+        (
+            "{refImages}",
+            if ctx.refs == 1 { "Input image 2 is a style reference".to_string() } else { format!("Input images 2 to {} are style references", ctx.refs + 1) },
+        ),
         ("{outlineColor}", outline.and_then(|o| o.get("color")).and_then(Value::as_str).unwrap_or("#753719").to_string()),
         ("{outlineWidthPct}", number(outline.and_then(|o| o.get("widthPct")).and_then(Value::as_f64).unwrap_or(1.45))),
         ("{fillPct}", number(canvas.and_then(|c| c.get("fillPct")).and_then(Value::as_f64).unwrap_or(88.0))),
@@ -598,6 +602,8 @@ mod tests {
         let base = PromptContext::for_kind(&pack, "prop");
         let refs = assemble(&pack, &PromptContext { refs: 2, ..base.clone() }).unwrap();
         assert!(refs.text.contains("Input images 2 to 3 are style references"));
+        let one = assemble(&pack, &PromptContext { refs: 1, ..base.clone() }).unwrap();
+        assert!(one.text.contains("Input image 2 is a style reference:"), "{}", one.text);
         let model = assemble(&pack, &PromptContext { outline: "model".into(), ..base.clone() }).unwrap();
         assert!(model.text.contains("(#753719)") && model.text.contains("1.45%"));
         let code = assemble(&pack, &base).unwrap();
