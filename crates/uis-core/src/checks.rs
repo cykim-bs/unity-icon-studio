@@ -3,10 +3,11 @@
 //!
 //! - Distances from the edge use alternating 3x3 / plus-shaped erosion (an octagon), like the
 //!   measurements the default ranges came from.
-//! - Stroke width: the share of dark pixels (luminance under 0.35) in each one-pixel band from
-//!   the edge inwards, added up until a band is under 12 % dark.
 //! - Stroke color: the most frequent color of the outer three bands; uniformity is the share of
 //!   that band within 3 levels of it.
+//! - Stroke width: the share of stroke pixels (dark, luminance under 0.35, and within 12 levels of
+//!   the stroke color) in each one-pixel band from the edge inwards, added up until a band is
+//!   under 12 %. `darkBandPx` counts every dark pixel instead (a dark object edge adds to it).
 //! - Inside colors: pixels at least 8 px from the edge.
 
 use serde::Serialize;
@@ -37,6 +38,8 @@ pub struct Metrics {
     pub largest_part: f32,
     pub parts: usize,
     pub outline_px: f32,
+    /// Every dark pixel per band, the stroke's color or not
+    pub dark_band_px: f32,
     /// Like `outline_px` for near-white pixels (a sticker border drawn by the model)
     pub light_rim_px: f32,
     pub outline_color: String,
@@ -144,20 +147,40 @@ pub fn measure(img: &Raster, outline: [f32; 3]) -> Metrics {
     let solid: Vec<bool> = a8.iter().map(|&a| a > 127).collect();
     let d = bands(&solid, w, h, 40);
     let dark = |i: usize| lum(src.px[i]) < 0.35;
-    // Stroke width
-    let mut th = 0.0f32;
-    for band in 1..=10u32 {
-        let sel: Vec<usize> = (0..w * h).filter(|&i| d[i] == band).collect();
-        if sel.is_empty() {
-            break;
+    // Stroke color and uniformity
+    let band: Vec<[u8; 3]> = (0..w * h).filter(|&i| (1..=3).contains(&d[i])).map(|i| rgb8[i]).collect();
+    let mut mode = [0u8; 3];
+    if !band.is_empty() {
+        let mut counts = std::collections::HashMap::new();
+        for c in &band {
+            *counts.entry(*c).or_insert(0usize) += 1;
         }
-        let frac = sel.iter().filter(|&&i| dark(i)).count() as f32 / sel.len() as f32;
-        if frac < 0.12 {
-            break;
-        }
-        th += frac;
+        mode = counts.iter().max_by_key(|(c, n)| (**n, std::cmp::Reverse(**c))).map(|(c, _)| *c).unwrap_or([0; 3]);
+        let mf = mode.map(|v| v as f32 / 255.0);
+        m.outline_color = hex(mf);
+        m.outline_delta_e = delta_e(mf, outline);
+        let near = band.iter().filter(|c| (0..3).all(|k| (c[k] as i32 - mode[k] as i32).abs() <= 3)).count();
+        m.outline_uniform = near as f32 / band.len() as f32;
     }
-    m.outline_px = th;
+    // Stroke width: dark pixels of the stroke's color (all dark pixels for darkBandPx)
+    let stroke_px = |i: usize| dark(i) && (0..3).all(|k| (rgb8[i][k] as i32 - mode[k] as i32).abs() <= 12);
+    let band_sum = |pick: &dyn Fn(usize) -> bool| {
+        let mut th = 0.0f32;
+        for band in 1..=10u32 {
+            let sel: Vec<usize> = (0..w * h).filter(|&i| d[i] == band).collect();
+            if sel.is_empty() {
+                break;
+            }
+            let frac = sel.iter().filter(|&&i| pick(i)).count() as f32 / sel.len() as f32;
+            if frac < 0.12 {
+                break;
+            }
+            th += frac;
+        }
+        th
+    };
+    m.outline_px = band_sum(&stroke_px);
+    m.dark_band_px = band_sum(&dark);
     // A white sticker border: bands that are mostly near-white
     let mut rim = 0.0f32;
     for band in 1..=10u32 {
@@ -175,20 +198,6 @@ pub fn measure(img: &Raster, outline: [f32; 3]) -> Metrics {
         rim += frac;
     }
     m.light_rim_px = rim;
-    // Stroke color and uniformity
-    let band: Vec<[u8; 3]> = (0..w * h).filter(|&i| (1..=3).contains(&d[i])).map(|i| rgb8[i]).collect();
-    if !band.is_empty() {
-        let mut counts = std::collections::HashMap::new();
-        for c in &band {
-            *counts.entry(*c).or_insert(0usize) += 1;
-        }
-        let mode = counts.iter().max_by_key(|(c, n)| (**n, std::cmp::Reverse(**c))).map(|(c, _)| *c).unwrap_or([0; 3]);
-        let mf = mode.map(|v| v as f32 / 255.0);
-        m.outline_color = hex(mf);
-        m.outline_delta_e = delta_e(mf, outline);
-        let near = band.iter().filter(|c| (0..3).all(|k| (c[k] as i32 - mode[k] as i32).abs() <= 3)).count();
-        m.outline_uniform = near as f32 / band.len() as f32;
-    }
     // Faint pixels just outside the edge, per edge pixel
     let outside: Vec<bool> = solid.iter().map(|s| !s).collect();
     let dout = bands(&outside, w, h, 3);

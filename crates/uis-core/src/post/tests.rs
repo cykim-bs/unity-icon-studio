@@ -57,7 +57,10 @@ fn stroke_is_about_3_7_px_at_256() {
     let img = draw(1000, CLEAR, PEACH, house);
     let out = run(&img, |_| {});
     let m = measure(icon(&out));
-    assert!((3.5..=3.9).contains(&m.outline_px), "stroke {}", m.outline_px);
+    // Measured like the reference table (every dark pixel per band) and as the checks do (dark
+    // pixels of the stroke color only)
+    assert!((3.5..=3.9).contains(&m.dark_band_px), "stroke {}", m.dark_band_px);
+    assert!((3.2..=3.9).contains(&m.outline_px), "stroke color {}", m.outline_px);
     assert!(m.outline_delta_e < 2.0, "color {}", m.outline_color);
     assert!(m.outline_uniform > 0.85, "uniform {}", m.outline_uniform);
     assert!((out.report.layout.stroke_px - 4.212).abs() < 0.01, "{}", out.report.layout.stroke_px);
@@ -123,7 +126,7 @@ fn native_alpha_is_used_when_clean_and_keying_otherwise() {
     assert_eq!(keyed.report.key.as_ref().unwrap().key, "#FF00FF");
     let m = measure(icon(&keyed));
     assert_eq!(m.corner_alpha_max, 0);
-    assert!((3.5..=3.9).contains(&m.outline_px), "{}", m.outline_px);
+    assert!((3.5..=3.9).contains(&m.dark_band_px), "{}", m.dark_band_px);
     // No magenta left at the edge: the band next to the stroke is peach or brown
     let r = icon(&keyed);
     let pinkish = r.px.iter().filter(|p| p[3] > 0.1 && p[0] > 0.8 && p[1] < 0.5 && p[2] > 0.8).count();

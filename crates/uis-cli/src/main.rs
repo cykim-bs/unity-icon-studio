@@ -544,6 +544,14 @@ fn generate_cmd(args: &Args) -> i32 {
         if let Some(e) = &r.error {
             println!("error {e}");
         }
+        for p in &posted {
+            println!(
+                "  post cand {}: pass {}  failed {}",
+                p["candidate"],
+                p["pass"],
+                p.pointer("/sizes/0/checks/failed").map(|v| v.to_string()).unwrap_or_else(|| p["error"].to_string())
+            );
+        }
     }
     if r.ok {
         0
