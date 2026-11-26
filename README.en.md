@@ -225,9 +225,11 @@ Not checked: HDRP and the built-in render pipeline, Unity 2022.3 and older, Dire
 | `npm test` | Screen unit tests (vitest + jsdom) |
 | `npm run build` | Text table check (`scripts\check-i18n.mjs`) + type check + screen build |
 | `cargo test --workspace` | Core, command line and stand-in CLI tests |
-| `scripts\e2e-stub.ps1` | `uis run` end to end with stand-in programs, plus three failures |
+| `scripts\e2e-stub.ps1` | `uis run` end to end with stand-in programs, three failures, rewrite and review on both paths (Claude, Codex) and the fallback when Claude is missing |
 | `scripts\drive-window.mjs` | For end-to-end checks in the real window: presses buttons, reads the state and takes screenshots through the WebView2 remote debugging port, which is open only in the app it `launch`es. `scripts\window-e2e.json` is the whole flow against the stand-ins |
 | `npm run dev` → `http://localhost:1441/?sample=1` | Browser preview (made-up data). `?lang=en`, `?theme=dark`, `?pick=1`, `?fail=limit` |
+
+**Test rule:** for features where the CLI can be picked (rewrite, review), test and check both paths, Claude and Codex, and record both results.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-stub.ps1 -BedOnly -Bed $env:TEMP\uis-bed

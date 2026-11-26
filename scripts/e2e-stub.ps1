@@ -7,6 +7,10 @@
 #   2. failure: Codex says the usage limit was reached (the second item is not sent)
 #   3. failure: the rewrite answer is not JSON (no picture is asked for)
 #   4. failure: a prefab that does not exist (capture fails, the other item goes on)
+#   5. rewrite on both paths (Claude, then Codex) with the same note and model answer
+#   6. review on both paths with the same capture and candidate
+#   7. Claude missing: the rewrite falls back to Codex
+# Steps 5 and 6 print a table of the two paths; a path that did not run is a failure.
 # Exit code 0 when every check passed.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-stub.ps1 [-Keep] [-BedOnly] [-Bed <folder>]
@@ -87,14 +91,14 @@ function Get-Calls($b, [string]$role) {
     return @(Get-Content $log | Where-Object { $_ -like ($role + "`t*") }).Count
 }
 
-function Invoke-Run($b, [string[]]$more) {
+# Runs `uis <args>` with the bed's home and CODEX_HOME; stdout parsed as JSON.
+function Invoke-Uis($b, [string[]]$args2, [string]$tag = 'uis') {
     $env:UNITY_ICON_STUDIO_HOME = $b.Home
     $env:CODEX_HOME = $b.CodexHome
-    $outFile = Join-Path $b.Root 'run-report.json'
-    $errFile = Join-Path $b.Root 'run-steps.txt'
+    $outFile = Join-Path $b.Root ($tag + '-out.json')
+    $errFile = Join-Path $b.Root ($tag + '-err.txt')
     try {
-        $args2 = @('run', '--project', $b.Game, '--mode', 'batch', '--json') + $more
-        # Quoted one by one (paths and the note have spaces; none has a quote)
+        # Quoted one by one (paths and notes have spaces; none has a quote)
         $line = ($args2 | ForEach-Object { '"' + $_ + '"' }) -join ' '
         $p = Start-Process -FilePath $uis -ArgumentList $line -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile
         $code = $p.ExitCode
@@ -103,8 +107,47 @@ function Invoke-Run($b, [string[]]$more) {
         Remove-Item Env:CODEX_HOME -ErrorAction SilentlyContinue
     }
     $text = [IO.File]::ReadAllText($outFile)
-    try { $report = $text | ConvertFrom-Json } catch { $report = $null }
-    return @{ Code = $code; Report = $report; Steps = (Get-Content (Join-Path $b.Root 'run-steps.txt') -ErrorAction SilentlyContinue) }
+    try { $json = $text | ConvertFrom-Json } catch { $json = $null }
+    return @{ Code = $code; Json = $json; Err = (Get-Content $errFile -ErrorAction SilentlyContinue) }
+}
+
+function Invoke-Run($b, [string[]]$more) {
+    $r = Invoke-Uis $b (@('run', '--project', $b.Game, '--mode', 'batch', '--json') + $more) 'run'
+    return @{ Code = $r.Code; Report = $r.Json; Steps = $r.Err }
+}
+
+# Changes one key of the bed's settings.json (dotted path), or removes it with $null.
+function Set-BedSetting($b, [string]$key, $value) {
+    $file = Join-Path $b.Home 'settings.json'
+    $doc = Get-Content -Raw $file | ConvertFrom-Json
+    $parts = $key.Split('.')
+    $node = $doc
+    foreach ($part in $parts[0..($parts.Count - 2)]) {
+        if (-not ($node.PSObject.Properties.Name -contains $part)) { $node | Add-Member -NotePropertyName $part -NotePropertyValue ([pscustomobject]@{}) }
+        $node = $node.$part
+    }
+    $last = $parts[-1]
+    if ($node.PSObject.Properties.Name -contains $last) { $node.PSObject.Properties.Remove($last) }
+    if ($null -ne $value) { $node | Add-Member -NotePropertyName $last -NotePropertyValue $value }
+    Write-Utf8 $file ($doc | ConvertTo-Json -Depth 8)
+}
+
+# One row of the two-path table for a rewrite report
+function Get-RewriteRow([string]$path, $r) {
+    $s = @($r.diff.sentences)
+    $locked = @($s | Where-Object { $_.locked })
+    return [pscustomobject]@{
+        path     = $path
+        cli      = $r.cli
+        fallback = $r.fallbackFrom
+        calls    = @($r.calls).Count
+        replaced = @($s | Where-Object { $_.status -eq 'replaced' }).Count
+        added    = @($s | Where-Object { $_.status -eq 'added' }).Count
+        rejected = @($r.diff.rejected).Count
+        lockedOk = (@($locked | Where-Object { $_.status -ne 'same' }).Count -eq 0 -and $locked.Count -gt 0)
+        ms       = [int](@($r.calls) | Measure-Object -Property elapsedMs -Sum).Sum
+        pass     = [bool]$r.ok
+    }
 }
 
 $b = New-Bed $Bed
@@ -150,6 +193,8 @@ foreach ($s in 'capture start', 'prompt ok', 'rewrite ok', 'generate ok', 'post 
     Check ($steps -match [regex]::Escape($s)) ('step reported: ' + $s)
 }
 
+$reviewJob = $rep.items[0].jobDir
+
 Say ''
 Say '2. failure: usage limit (stops the items still waiting)'
 Set-Scenario $b.Root "delay_ms=400`ncodex=limit`n"
@@ -178,6 +223,88 @@ $rep = $r.Report
 Check ($rep.items[0].state -eq 'failed' -and $rep.items[0].stage -eq 'capture' -and $rep.items[0].error -eq 'prefab_not_found') 'missing prefab failed at capture'
 Check ($rep.items[1].state -eq 'ok') 'the other item was made'
 
+
+# The steps where a CLI can be picked (rewrite, review) run on both paths, Claude and Codex, with
+# the same input. Pictures are Codex only. A path that did not run counts as a failure.
+Say ''
+Say '5. rewrite on both paths: the same note with Claude, then with Codex'
+Set-Scenario $b.Root "delay_ms=400`n"
+# The model's answer: one replaced and one added sentence, one addition the code refuses (a logo),
+# one change to a locked sentence the code refuses, one part the model left out itself
+$reply = '{"replace":[{"id":"STYLE.color","text":"Color: cool winter palette with a sky-blue roof and snow-white accents; no haze, no fog, no bloom."},{"id":"CAMERA.view","text":"Show it from the front."}],"add":[{"block":"SUBJECT","text":"A thin layer of snow rests on the roof."},{"block":"SUBJECT","text":"Put a small logo on the roof."}],"avoidAdd":[],"outline":"keep","camera":"keep","rejected":[{"part":"make it photoreal","reason":"conflicts with the casual style"}],"summaryKo":"winter"}'
+Write-Utf8 (Join-Path $b.Bin 'reply.json') $reply
+$note = 'snow on the roof, winter mood, add a logo, make it photoreal'
+$rows = @()
+foreach ($cli in 'claude', 'codex') {
+    $before = Get-Calls $b $cli
+    $r = Invoke-Uis $b @('rewrite', '--kind', 'building', '--note', $note, '--cli', $cli, '--json') ('rewrite-' + $cli)
+    $row = Get-RewriteRow $cli $r.Json
+    $row | Add-Member -NotePropertyName cliCalls -NotePropertyValue ((Get-Calls $b $cli) - $before)
+    $rows += $row
+    Check ($r.Code -eq 0 -and $row.pass) ('rewrite ok on the ' + $cli + ' path')
+    Check ($row.cli -eq $cli -and -not $row.fallback) ('answered by ' + $cli + ' itself (no fallback)')
+    Check ($row.cliCalls -eq 1) ('one ' + $cli + ' call')
+    Check ($row.replaced -eq 1 -and $row.added -eq 1) ($cli + ': 1 replaced, 1 added')
+    Check ($row.rejected -eq 3) ($cli + ': 3 left out (model 1, logo, locked camera); got ' + $row.rejected)
+    Check $row.lockedOk ($cli + ': every locked sentence kept')
+}
+Remove-Item (Join-Path $b.Bin 'reply.json')
+Check ($rows.Count -eq 2) 'both paths ran'
+
+Say ''
+Say '6. review on both paths: the same capture and candidate'
+$cap = Join-Path $reviewJob 'capture\capture.png'
+$cand = Join-Path $reviewJob 'post\cand-01\master-1024.png'
+$reviewRows = @()
+foreach ($cli in 'claude', 'codex') {
+    $before = Get-Calls $b $cli
+    $r = Invoke-Uis $b @('review', '--capture', $cap, '--candidate', $cand, '--kind', 'prop', '--cli', $cli, '--json') ('review-' + $cli)
+    $j = $r.Json
+    $verdict = '-'
+    if ($null -ne $j -and $null -ne $j.review) { if ($j.review.pass) { $verdict = 'pass' } else { $verdict = 'fail' } }
+    $row = [pscustomobject]@{
+        path    = $cli
+        cli     = $j.call.cli
+        calls   = (Get-Calls $b $cli) - $before
+        verdict = $verdict
+        issues  = @($j.review.issues).Count
+        ms      = [int]$j.call.elapsedMs
+        pass    = [bool]$j.ok
+    }
+    $reviewRows += $row
+    $why = ''
+    if (-not $row.pass -and $null -ne $j) { $why = ': ' + ($j.failure | ConvertTo-Json -Compress) }
+    Check ($row.pass) ('review answered on the ' + $cli + ' path' + $why)
+    Check ($row.calls -eq 1) ('one ' + $cli + ' call')
+}
+Check ($reviewRows.Count -eq 2) 'both paths ran'
+# An answer that is not a review (an edit list) is a failure on both paths, not a pass
+Write-Utf8 (Join-Path $b.Bin 'reply.json') '{"replace":[],"add":[],"avoidAdd":[],"outline":"keep","camera":"keep","rejected":[],"summaryKo":""}'
+foreach ($cli in 'claude', 'codex') {
+    $r = Invoke-Uis $b @('review', '--capture', $cap, '--candidate', $cand, '--kind', 'prop', '--cli', $cli, '--json') ('review-bad-' + $cli)
+    Check ((-not $r.Json.ok) -and $r.Json.failure.kind -eq 'bad_json') ($cli + ': a non-review answer is bad_json')
+}
+Remove-Item (Join-Path $b.Bin 'reply.json')
+
+Say ''
+Say '7. Claude missing: the rewrite falls back to Codex'
+Set-BedSetting $b 'claude.path' (Join-Path $b.Bin 'no-such-claude.exe')
+$beforeClaude = Get-Calls $b 'claude'
+$beforeCodex = Get-Calls $b 'codex'
+$r = Invoke-Uis $b @('rewrite', '--kind', 'building', '--note', 'snow on the roof', '--cli', 'claude', '--json') 'rewrite-fallback'
+$fb = Get-RewriteRow 'claude missing' $r.Json
+Check ($fb.pass -and $fb.cli -eq 'codex' -and $fb.fallback -eq 'claude') 'answered by codex, fallback from claude'
+Check ((Get-Calls $b 'claude') -eq $beforeClaude -and (Get-Calls $b 'codex') -eq ($beforeCodex + 1)) 'no claude call, one codex call'
+Set-BedSetting $b 'claude.path' (Join-Path $b.Bin 'claude.exe')
+
+Say ''
+Say 'two paths, side by side'
+Say '  rewrite (same note, same model answer)'
+($rows + @($fb)) | Format-Table path, cli, fallback, calls, replaced, added, rejected, lockedOk, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
+Say '  review (same capture and candidate)'
+$reviewRows | Format-Table path, cli, calls, verdict, issues, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
+$table = @{ rewrite = @($rows + @($fb)); review = $reviewRows } | ConvertTo-Json -Depth 5
+Write-Utf8 (Join-Path $b.Root 'two-paths.json') $table
 Say ''
 if ($script:failures -eq 0) { Say 'e2e-stub: all checks passed' } else { Say ('e2e-stub: ' + $script:failures + ' check(s) failed') }
 if ($Keep -or $script:failures) { Say ('bed kept: ' + $b.Root) } else { Remove-Item -Recurse -Force $b.Root -ErrorAction SilentlyContinue }

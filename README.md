@@ -226,9 +226,11 @@ cargo run -q -p uis-cli -- help
 | `npm test` | 화면 단위 시험(vitest + jsdom) |
 | `npm run build` | 문자열 표 검사(`scripts\check-i18n.mjs`) + 타입 검사 + 화면 빌드 |
 | `cargo test --workspace` | 코어·명령줄·가짜 CLI 시험 |
-| `scripts\e2e-stub.ps1` | 가짜 프로그램으로 `uis run` 끝단 시험과 실패 경우 3가지 |
+| `scripts\e2e-stub.ps1` | 가짜 프로그램으로 `uis run` 끝단 시험, 실패 경우 3가지, 재가공·검수의 Claude·Codex 두 경로와 Claude 없음 대체 |
 | `scripts\drive-window.mjs` | 실제 창 끝단 확인용: WebView2 원격 디버깅 포트로 앱 창의 버튼을 누르고 상태를 읽고 화면을 찍습니다. `launch`로 띄운 그 앱에만 포트가 열립니다. `scripts\window-e2e.json`은 가짜 프로그램으로 처음부터 끝까지 도는 순서입니다 |
 | `npm run dev` → `http://localhost:1441/?sample=1` | 브라우저 미리보기(가짜 데이터). `?lang=en`, `?theme=dark`, `?pick=1`, `?fail=limit` |
+
+**시험 규칙:** 재가공·검수처럼 CLI를 고를 수 있는 기능의 시험과 확인은 Claude·Codex 두 경로를 모두 돌리고 결과를 둘 다 적습니다.
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-stub.ps1 -BedOnly -Bed $env:TEMP\uis-bed
