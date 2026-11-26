@@ -62,6 +62,13 @@ pub fn run() {
             commands::capture_image,
             commands::recovery_status,
             commands::recovery_run,
+            commands::readiness,
+            commands::codex_copy_from_app,
+            commands::prompt_preview,
+            commands::prompt_rewrite,
+            commands::generate_raw,
+            commands::review,
+            commands::images_today,
         ])
         .setup(|app| {
             let home = uis_core::home::Home::resolve();

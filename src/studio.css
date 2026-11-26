@@ -586,3 +586,102 @@ dl.details dd {
   border-radius: 6px;
   background: rgba(127, 127, 127, 0.08);
 }
+
+/* ---- make the icon: note, rewrite before/after, raw picture (right column) */
+.ready-dot.warn {
+  border-color: var(--warn, #d08a1e);
+  background: var(--warn, #d08a1e);
+}
+.make-box {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+}
+.make-title {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.make-note {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 60px;
+  padding: 8px;
+  font: inherit;
+  font-size: 13px;
+  color: inherit;
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-radius: 8px;
+}
+.make-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.prompt-diff {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.prompt-diff p {
+  margin: 6px 0;
+}
+.prompt-diff-head {
+  color: var(--muted);
+}
+.prompt-summary {
+  font-weight: 600;
+}
+.prompt-changes {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+.prompt-change {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.08));
+}
+.prompt-tag {
+  justify-self: start;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: rgba(127, 127, 127, 0.18);
+}
+.prompt-change.added .prompt-tag {
+  background: rgba(46, 160, 67, 0.22);
+}
+.prompt-change.replaced .prompt-tag {
+  background: rgba(56, 139, 253, 0.22);
+}
+.prompt-id {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.prompt-before {
+  color: var(--muted);
+}
+.prompt-after {
+  text-decoration: none;
+}
+.prompt-sub {
+  margin: 10px 0 4px;
+  font-size: 12px;
+}
+.prompt-rejected {
+  margin: 0;
+  padding-left: 16px;
+}
+.raw-preview {
+  margin-top: 12px;
+  display: grid;
+  grid-template-rows: 1fr auto;
+}

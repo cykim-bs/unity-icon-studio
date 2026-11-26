@@ -134,3 +134,107 @@ export interface BatchFinish {
   entryRemoved: boolean;
   error: string | null;
 }
+
+// ---------------------------------------------------------------- prompt and CLIs (cli/*.rs, prompt.rs, generate.rs)
+
+export interface CliState {
+  found: boolean;
+  path: string | null;
+  source: string | null;
+  version: string | null;
+  loggedIn: boolean | null;
+  imageTool: boolean | null;
+  enabled: boolean;
+  problem: string | null;
+}
+
+export interface Readiness {
+  codex: CliState;
+  claude: CliState;
+  unityCli: CliState;
+  codexApp: { version: string; resources: string; bytes: number } | null;
+  codexCopyNeeded: boolean;
+  elapsedMs: number;
+}
+
+export interface CopyInfo {
+  appVersion: string;
+  cliVersion: string | null;
+  dir: string;
+  bytes: number;
+}
+
+export type SentenceStatus = "same" | "replaced" | "added";
+
+export interface Sentence {
+  id: string;
+  block: string;
+  locked: boolean;
+  text: string;
+  status: SentenceStatus;
+  before?: string;
+}
+
+export interface Rejected {
+  part: string;
+  reason: string;
+  /** model: the LLM left it out; code: the tool took it out */
+  by: string;
+}
+
+export interface Failure {
+  kind: string;
+  cli: string;
+  message: string;
+  exitCode: number | null;
+}
+
+export interface LlmCall {
+  cli: string;
+  purpose: string;
+  attempt: number;
+  elapsedMs: number;
+  code: string;
+}
+
+export interface PromptDiff {
+  changed: boolean;
+  sentences: Sentence[];
+  rejected: Rejected[];
+  summaryKo: string;
+  outline: string;
+  camera: string;
+}
+
+export interface RewriteReport {
+  ok: boolean;
+  note: string;
+  cli: string | null;
+  fallbackFrom: string | null;
+  finalText: string;
+  diff: PromptDiff;
+  calls: LlmCall[];
+  failure: Failure | null;
+  choices: string[];
+}
+
+export interface ImageResult {
+  ok: boolean;
+  raw: string | null;
+  harvestStage: number | null;
+  width: number;
+  height: number;
+  hasAlpha: boolean;
+  failure: Failure | null;
+  call: LlmCall;
+}
+
+export interface GenerateReport {
+  ok: boolean;
+  jobDir: string;
+  finalText: string;
+  rewrite: RewriteReport | null;
+  candidates: ImageResult[];
+  error: string | null;
+  elapsedMs: number;
+}

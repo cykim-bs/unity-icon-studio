@@ -14,11 +14,12 @@
  */
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { call, captureImage, captureOnly, inTauri } from "./backend";
+import { call, captureImage, captureOnly, copyCodex, generateRaw, inTauri, promptRewrite, readiness } from "./backend";
 import { captureErrorText } from "./capture-text";
 import { applyDomTexts, currentLang, resolveLang, setLang, t } from "./i18n";
 import { applyFilter, CLASS_CHIPS, DEFAULT_FILTER, folderChoices, KIND_CHIPS, nextSelection, type ClassChip, type PrefabFilter } from "./prefab-filter";
-import { renderDetails, type CaptureView } from "./screens/details";
+import { renderDetails, type CaptureView, type GenView } from "./screens/details";
+import { failureText, generateErrorText } from "./prompt-text";
 import { gridColumns, itemKey, renderChips, renderGrid } from "./screens/prefabs";
 import { modeText, reasonText, renderProjects } from "./screens/projects";
 import { aboutPanel } from "./settings-panels";
@@ -34,7 +35,7 @@ import { initSettingsDialog } from "./shell/settings-dialog";
 import { fitStatusbar, flashStatus, setStatusPath } from "./shell/statusbar";
 import { initTheme, isThemeChoice, oppositeChoice } from "./shell/theme";
 import { initTitlebar } from "./shell/titlebar";
-import type { AppInfo, BatchFinish, CaptureEvent, HubProject, Kind, PackSummary, PrefabItem, ProjectSummary, RecoveryEntry, ScanResult } from "./types";
+import type { AppInfo, BatchFinish, CaptureEvent, HubProject, Kind, PackSummary, PrefabItem, ProjectSummary, Readiness, RecoveryEntry, ScanResult } from "./types";
 
 function $(id: string): HTMLElement {
   const node = document.getElementById(id);
@@ -77,9 +78,15 @@ let anchor: string | null = null;
 let focusKey: string | null = null;
 let shown: PrefabItem[] = [];
 let dropHover = false;
-const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {} });
+const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {} });
 /** Capture state of the open project (cleared when another project is opened). */
 let cap: CaptureView = emptyCapture();
+const emptyGen = (cli: string): GenView => ({ note: "", cli, busy: "", diff: null, error: null, raw: null, rawInfo: "" });
+/** Note, rewrite preview and raw picture of the one picked prefab (cleared when the pick changes). */
+let gen: GenView = emptyGen("claude");
+let genFor: string | null = null;
+let ready: Readiness | null = null;
+let imagesToday = 0;
 
 // ---------------------------------------------------------------- state helpers
 
@@ -184,14 +191,29 @@ function renderList() {
 }
 
 function renderBody() {
+  const now = picked();
+  const key = now.length === 1 ? now[0].path : null;
+  if (key !== genFor && !gen.busy) {
+    gen = emptyGen(gen.cli);
+    genFor = key;
+  }
   const title = renderDetails(
     $("body-content"),
-    { project: current(), pack: packOf(current()), picked: picked(), lang: currentLang(), capture: cap },
+    { project: current(), pack: packOf(current()), picked: now, lang: currentLang(), capture: cap, ready, gen },
     {
       setKind: (item, kind) => void setKind(item, kind),
       openFolder: (folder) => void openInProject(folder),
       copy: (text) => void copyText(text),
       capture: (items) => void runCapture(items),
+      note: (text) => {
+        gen.note = text;
+      },
+      rewriter: (cli) => {
+        gen.cli = cli;
+      },
+      rewrite: (item) => void runRewrite(item),
+      generate: (item) => void runGenerate(item),
+      checkReady: () => void checkReady(true),
     },
   );
   $("body-title").textContent = title || t("body.title");
@@ -203,7 +225,7 @@ function renderStatus() {
   $("status-mode").textContent = p ? modeText(p) : "";
   $("status-mode").title = p ? reasonText(p) : "";
   $("status-ready").textContent = "";
-  $("status-busy").hidden = !scanning && !cap.running;
+  $("status-busy").hidden = !scanning && !cap.running && !gen.busy;
   $("status-progress-text").textContent = cap.running
     ? cap.progress
     : scanning
@@ -211,7 +233,7 @@ function renderStatus() {
     : scan
       ? t("status.scanned", { n: scan.total, ms: scan.elapsedMs })
       : "";
-  $("status-today").textContent = t("status.today", { n: 0 });
+  $("status-today").textContent = t("status.today", { n: imagesToday });
   $("status-version").textContent = appInfo ? t("status.version", { version: appInfo.version }) : "";
   fitStatusbar();
 }
@@ -466,6 +488,7 @@ async function runCapture(items: PrefabItem[]) {
     for (const it of report.items) {
       if (it.ok && it.output) {
         delete cap.failures[it.prefab];
+        cap.outputs[it.prefab] = it.output;
         cap.images[it.prefab] = await captureImage(it.output).catch(() => "");
       } else if (it.error) {
         cap.failures[it.prefab] = it.error;
@@ -489,6 +512,100 @@ async function runCapture(items: PrefabItem[]) {
     } else {
       cap = emptyCapture();
     }
+  }
+}
+
+// ---------------------------------------------------------------- prompt and raw pictures
+
+const cliName = (cli: string) => (cli === "claude" ? "Claude" : "Codex");
+
+/** The note worked into the fixed prompt (no picture): the before/after shows under the note. */
+async function runRewrite(item: PrefabItem) {
+  const p = current();
+  if (!p || gen.busy) return;
+  gen.busy = "rewrite";
+  gen.error = null;
+  renderBody();
+  renderStatus();
+  try {
+    gen.diff = await promptRewrite(p.packId, item.kind, gen.note, gen.cli);
+    if (gen.diff.failure) flashStatus(failureText(gen.diff.failure), 6000);
+    else if (gen.diff.fallbackFrom) flashStatus(t("prompt.fallback", { from: cliName(gen.diff.fallbackFrom) }), 6000);
+  } catch (e) {
+    gen.error = String(e);
+  } finally {
+    gen.busy = "";
+    renderBody();
+    renderStatus();
+  }
+}
+
+/** One raw picture from the capture (counts against the image limit). */
+async function runGenerate(item: PrefabItem) {
+  const p = current();
+  const capture = cap.outputs[item.path];
+  if (!p || gen.busy || !capture) return;
+  gen.busy = "generate";
+  gen.error = null;
+  gen.raw = null;
+  renderBody();
+  renderStatus();
+  try {
+    const r = await generateRaw(p.packId, item.kind, capture, item.name, gen.note, gen.cli);
+    if (r.rewrite && r.rewrite.cli) gen.diff = r.rewrite;
+    const c = r.candidates[0];
+    if (c?.ok && c.raw) {
+      gen.raw = await captureImage(c.raw).catch(() => null);
+      const alpha = c.hasAlpha ? t("make.alpha") : t("make.opaque");
+      gen.rawInfo = t("make.rawInfo", { w: c.width, h: c.height, s: (c.call.elapsedMs / 1000).toFixed(0), alpha });
+      flashStatus(t("make.done", { s: (r.elapsedMs / 1000).toFixed(0) }), 5000);
+    } else if (c?.failure) {
+      gen.error = `image:${c.failure.kind}`;
+      flashStatus(failureText(c.failure), 8000);
+    } else if (r.error) {
+      gen.error = r.error;
+      flashStatus(generateErrorText(r.error), 8000);
+    }
+  } catch (e) {
+    gen.error = String(e);
+  } finally {
+    gen.busy = "";
+    imagesToday = await call<number>("images_today").catch(() => imagesToday);
+    renderBody();
+    renderStatus();
+  }
+}
+
+/** Readiness of the CLIs; a banner when Codex has to be copied out of the desktop app first. */
+async function checkReady(refresh: boolean) {
+  ready = await readiness(refresh).catch(() => null);
+  imagesToday = (await call<number>("images_today").catch(() => 0)) ?? 0;
+  renderBody();
+  renderStatus();
+  if (ready && ready.codexApp && (!ready.codex.found || ready.codexCopyNeeded)) {
+    const mb = Math.round(ready.codexApp.bytes / 1048576);
+    showBanner({
+      key: `codex-copy-${ready.codexApp.version}`,
+      message: ready.codex.found ? t("codex.copyNewer", { version: ready.codexApp.version }) : t("codex.copyNeeded", { mb }),
+      warn: !ready.codex.found,
+      actions: [{ label: t("codex.copy"), run: () => void runCopyCodex() }],
+    });
+  }
+}
+
+async function runCopyCodex() {
+  try {
+    const info = await copyCodex((done, total) => {
+      $("status-progress-text").textContent = t("codex.copying", { done: Math.round(done / 1048576), total: Math.round(total / 1048576) });
+      $("status-busy").hidden = done >= total;
+    });
+    showBanner(null);
+    flashStatus(t("codex.copied", { version: info.cliVersion ?? info.appVersion }), 6000);
+  } catch (e) {
+    flashStatus(t("codex.copyFailed", { text: String(e) }), 8000);
+  } finally {
+    $("status-busy").hidden = true;
+    void checkReady(true);
   }
 }
 
@@ -728,6 +845,7 @@ async function boot() {
   await bindDrop();
   if (currentId) void runScan(false);
   void checkRecovery();
+  void checkReady(false);
 }
 
 void boot();

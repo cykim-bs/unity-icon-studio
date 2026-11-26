@@ -18,6 +18,7 @@ export const SETTING_CATEGORIES = [
   { id: "general", label: "settings.cat.general" },
   { id: "folders", label: "settings.cat.folders" },
   { id: "capture", label: "settings.cat.capture" },
+  { id: "generate", label: "settings.cat.generate" },
   { id: "about", label: "settings.cat.about" },
 ] as const;
 export type CategoryId = (typeof SETTING_CATEGORIES)[number]["id"];
@@ -121,6 +122,41 @@ export const SETTINGS = {
     hint: "settings.restoreTrackedFiles.hint",
     default: true,
   },
+  "llm.rewriter": {
+    kind: "select",
+    section: "generate",
+    label: "settings.rewriter",
+    hint: "settings.rewriter.hint",
+    default: "claude",
+    options: [
+      { value: "claude", label: "cli.claude" },
+      { value: "codex", label: "cli.codex" },
+    ],
+  },
+  "claude.enabled": { kind: "toggle", section: "generate", label: "settings.claudeEnabled", hint: "settings.claudeEnabled.hint", default: true },
+  "claude.model": { kind: "text", section: "generate", label: "settings.claudeModel", hint: "settings.claudeModel.hint", default: "sonnet" },
+  "claude.effort": {
+    kind: "select",
+    section: "generate",
+    label: "settings.claudeEffort",
+    default: "low",
+    options: [
+      { value: "low", label: "effort.low" },
+      { value: "medium", label: "effort.medium" },
+      { value: "high", label: "effort.high" },
+    ],
+  },
+  "codex.path": { kind: "text", section: "generate", label: "settings.codexPath", hint: "settings.codexPath.hint", default: "", placeholder: "settings.codexPath.placeholder" },
+  "codex.ignoreUserConfig": { kind: "toggle", section: "generate", label: "settings.ignoreUserConfig", hint: "settings.ignoreUserConfig.hint", default: true },
+  "codex.cleanGeneratedImages": {
+    kind: "toggle",
+    section: "generate",
+    label: "settings.cleanGeneratedImages",
+    hint: "settings.cleanGeneratedImages.hint",
+    default: true,
+  },
+  "codex.imageTimeoutSec": { kind: "number", section: "generate", label: "settings.imageTimeoutSec", default: 300, min: 30, max: 1800, step: 10, unit: "unit.secs" },
+  "codex.textTimeoutSec": { kind: "number", section: "generate", label: "settings.textTimeoutSec", default: 90, min: 10, max: 600, step: 5, unit: "unit.secs" },
 } satisfies Record<string, SettingDef>;
 
 export type SettingKey = keyof typeof SETTINGS;

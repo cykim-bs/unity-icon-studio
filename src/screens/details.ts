@@ -4,9 +4,11 @@
  */
 
 import { capturable, captureErrorText, itemErrorText } from "../capture-text";
+import { renderPromptDiff } from "../components/prompt-diff";
 import { t } from "../i18n";
 import { KIND_CHIPS } from "../prefab-filter";
-import type { PackSummary, PrefabItem, ProjectSummary } from "../types";
+import { generateErrorText, readyRow } from "../prompt-text";
+import type { PackSummary, PrefabItem, ProjectSummary, Readiness, RewriteReport } from "../types";
 import { modeText, reasonText } from "./projects";
 
 /** Capture state of the open project, kept by the page (main.ts). */
@@ -20,6 +22,21 @@ export interface CaptureView {
   images: Record<string, string>;
   /** Item error of the last capture, by asset path */
   failures: Record<string, string>;
+  /** The capture PNG on disk, by asset path (what generation starts from) */
+  outputs: Record<string, string>;
+}
+
+/** The note, the rewrite preview and the raw picture of the picked prefab (main.ts keeps it). */
+export interface GenView {
+  note: string;
+  /** claude or codex */
+  cli: string;
+  busy: "" | "rewrite" | "generate";
+  diff: RewriteReport | null;
+  error: string | null;
+  /** The raw generated picture (data: URL) and a line about it */
+  raw: string | null;
+  rawInfo: string;
 }
 
 export interface DetailsView {
@@ -28,6 +45,8 @@ export interface DetailsView {
   picked: PrefabItem[];
   lang: string;
   capture: CaptureView;
+  ready: Readiness | null;
+  gen: GenView;
 }
 
 export interface DetailsHooks {
@@ -35,6 +54,11 @@ export interface DetailsHooks {
   openFolder(folder: string): void;
   copy(text: string): void;
   capture(items: PrefabItem[]): void;
+  note(text: string): void;
+  rewriter(cli: string): void;
+  rewrite(item: PrefabItem): void;
+  generate(item: PrefabItem): void;
+  checkReady(): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
@@ -64,15 +88,74 @@ function facts(rows: [string, string | Node][]): HTMLElement {
   return dl;
 }
 
-function readiness(): HTMLElement {
+function readiness(ready: Readiness | null, hooks: DetailsHooks): HTMLElement {
   const list = el("div", "ready-list");
   list.append(el("h3", "", t("ready.title")));
-  for (const key of ["ready.codex", "ready.claude", "ready.unityCli", "ready.unity"]) {
+  for (const [key, name] of [["ready.codex", "codex"], ["ready.claude", "claude"], ["ready.unityCli", "unityCli"]] as const) {
     const row = el("div", "ready-row");
-    row.append(el("span", "ready-dot"), el("span", "ready-name", t(key)), el("span", "muted", t("ready.notChecked")));
+    const r = readyRow(name, ready);
+    const dot = el("span", `ready-dot ${r.level}`);
+    row.append(dot, el("span", "ready-name", t(key)), el("span", r.level === "bad" ? "warn-text" : "muted", r.text));
     list.append(row);
   }
+  const again = el("button", "link-btn", t("ready.check"));
+  again.type = "button";
+  again.addEventListener("click", () => hooks.checkReady());
+  list.append(again);
   return list;
+}
+
+/** Note, rewriter, 「preview the rewrite」, 「make a raw picture」, the before/after and the picture. */
+function makeSection(item: PrefabItem, view: DetailsView, hooks: DetailsHooks): HTMLElement {
+  const g = view.gen;
+  const box = el("section", "make-box");
+  box.append(el("h3", "make-title", t("make.title")));
+  const note = el("textarea", "make-note");
+  note.rows = 3;
+  note.value = g.note;
+  note.placeholder = t("make.notePlaceholder");
+  note.setAttribute("aria-label", t("make.note"));
+  note.disabled = !!g.busy;
+  const cli = el("select", "make-cli");
+  cli.setAttribute("aria-label", t("make.rewriter"));
+  cli.append(new Option("Claude", "claude"), new Option("Codex", "codex"));
+  cli.value = g.cli;
+  cli.disabled = !!g.busy;
+  cli.addEventListener("change", () => hooks.rewriter(cli.value));
+  const row = el("div", "make-row");
+  row.append(el("span", "muted", t("make.rewriter")), cli);
+  const actions = el("div", "body-actions");
+  const preview = el("button", "act-btn", g.busy === "rewrite" ? t("make.rewriting") : t("make.preview"));
+  preview.type = "button";
+  preview.disabled = !!g.busy || !g.note.trim();
+  preview.addEventListener("click", () => hooks.rewrite(item));
+  // Typing keeps the focus: only the state and this button follow (no redraw)
+  note.addEventListener("input", () => {
+    hooks.note(note.value);
+    preview.disabled = !!g.busy || !note.value.trim();
+    hint.hidden = !!note.value.trim();
+  });
+  const make = el("button", "act-btn", g.busy === "generate" ? t("make.generating") : t("make.generate"));
+  make.type = "button";
+  make.disabled = !!g.busy || !view.capture.outputs[item.path];
+  make.title = view.capture.outputs[item.path] ? t("make.generateHint") : t("make.needCapture");
+  make.addEventListener("click", () => hooks.generate(item));
+  actions.append(preview, make);
+  const hint = el("p", "body-hint", t("make.emptyNote"));
+  hint.hidden = !!g.note.trim();
+  box.append(note, row, actions, hint);
+  if (g.error) box.append(el("p", "body-hint warn-text", generateErrorText(g.error)));
+  if (g.diff) box.append(renderPromptDiff(g.diff));
+  if (g.raw) {
+    const fig = el("figure", "capture-preview raw-preview");
+    const img = el("img");
+    img.src = g.raw;
+    img.alt = t("make.raw");
+    img.draggable = false;
+    fig.append(img, el("figcaption", "muted", g.rawInfo));
+    box.append(fig);
+  }
+  return box;
 }
 
 function kindSourceText(item: PrefabItem): string {
@@ -120,7 +203,8 @@ function previewBox(item: PrefabItem, cap: CaptureView): HTMLElement {
   return box;
 }
 
-function one(item: PrefabItem, hooks: DetailsHooks, cap: CaptureView): HTMLElement[] {
+function one(item: PrefabItem, hooks: DetailsHooks, view: DetailsView): HTMLElement[] {
+  const cap = view.capture;
   const head = el("div", "details-head");
   head.append(el("h2", "details-title", item.name));
   const path = el("button", "link-btn path", item.path);
@@ -156,6 +240,7 @@ function one(item: PrefabItem, hooks: DetailsHooks, cap: CaptureView): HTMLEleme
   const out: HTMLElement[] = [head];
   if (ok) out.push(previewBox(item, cap));
   out.push(facts(rows), actions, ...captureNotes(cap));
+  if (ok) out.push(makeSection(item, view, hooks));
   if (!ok) out.push(el("p", "body-hint warn-text", t("details.not3d")));
   return out;
 }
@@ -187,11 +272,11 @@ function many(items: PrefabItem[], hooks: DetailsHooks, cap: CaptureView): HTMLE
 
 export function renderDetails(content: HTMLElement, view: DetailsView, hooks: DetailsHooks): string {
   if (!view.project) {
-    content.replaceChildren(readiness());
+    content.replaceChildren(readiness(view.ready, hooks));
     return "";
   }
   if (view.picked.length === 1) {
-    content.replaceChildren(...one(view.picked[0], hooks, view.capture));
+    content.replaceChildren(...one(view.picked[0], hooks, view));
     return view.picked[0].name;
   }
   if (view.picked.length > 1) {
@@ -208,6 +293,6 @@ export function renderDetails(content: HTMLElement, view: DetailsView, hooks: De
     [t("details.pack"), packName(view.pack, view.lang)],
     [t("details.packRules"), String(view.pack?.kindRules ?? 0)],
   ]);
-  content.replaceChildren(box, summary, readiness());
+  content.replaceChildren(box, summary, readiness(view.ready, hooks));
   return "";
 }

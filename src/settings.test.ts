@@ -33,6 +33,8 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
     expect(options("language")).toEqual(rustList("LANGUAGES"));
     expect(options("theme")).toEqual(rustList("THEMES"));
     expect(options("capture.mode")).toEqual(rustList("CAPTURE_MODES"));
+    expect(options("llm.rewriter")).toEqual(rustList("REWRITERS"));
+    expect(options("claude.effort")).toEqual(rustList("CLAUDE_EFFORTS"));
   });
 
   it("has the same ranges and defaults", () => {
@@ -41,6 +43,14 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
     expect(rust).toContain(`batch_timeout_min: ${def.default},`);
     expect(rust).toContain(`export_name: "${SETTINGS.exportName.default}".into()`);
     expect(rust).toContain(`restore_tracked_files: ${SETTINGS["capture.restoreTrackedFiles"].default},`);
+    for (const [key, field] of [["codex.imageTimeoutSec", "image_timeout_sec"], ["codex.textTimeoutSec", "text_timeout_sec"]] as const) {
+      const d = SETTINGS[key];
+      expect([d.min, d.max]).toEqual(rustRange(field));
+      expect(rust).toContain(`${field}: ${d.default},`);
+    }
+    expect(rust).toContain(`ignore_user_config: ${SETTINGS["codex.ignoreUserConfig"].default},`);
+    expect(rust).toContain(`clean_generated_images: ${SETTINGS["codex.cleanGeneratedImages"].default},`);
+    expect(rust).toContain(`model: "${SETTINGS["claude.model"].default}".into()`);
   });
 });
 

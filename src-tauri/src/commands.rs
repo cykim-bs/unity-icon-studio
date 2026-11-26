@@ -274,3 +274,175 @@ pub async fn recovery_run() -> Result<Vec<BatchFinish>, String> {
     };
     blocking(|| Ok(uis_core::capture::recover(&home()))).await
 }
+
+// ---------------------------------------------------------------- prompt, CLIs, raw pictures
+
+use std::sync::Mutex;
+use uis_core::cli::codex::CopyInfo;
+use uis_core::cli::{Readiness, RewriteReport};
+use uis_core::generate::{GenerateReport, GenerateRequest};
+use uis_core::prompt::Assembled;
+
+/// One LLM job at a time (a rewrite, a picture or a review).
+static LLM_BUSY: AtomicBool = AtomicBool::new(false);
+static COPYING: AtomicBool = AtomicBool::new(false);
+/// The last readiness check (the screen asks often; the CLIs are asked again on `refresh`).
+static READY: Mutex<Option<Readiness>> = Mutex::new(None);
+
+/// Codex, Claude and the unity CLI: found, version, signed in, image runner, the desktop app.
+#[tauri::command]
+pub async fn readiness(refresh: bool) -> Result<Readiness, String> {
+    if !refresh {
+        if let Some(r) = READY.lock().map_err(|e| e.to_string())?.clone() {
+            return Ok(r);
+        }
+    }
+    let r = blocking(|| {
+        let home = home();
+        Ok(uis_core::cli::readiness(&home, &settings::load(&home)))
+    })
+    .await?;
+    *READY.lock().map_err(|e| e.to_string())? = Some(r.clone());
+    Ok(r)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyProgress {
+    done: u64,
+    total: u64,
+}
+
+/// Copies the Codex desktop app's `codex*.exe` into the tool's folder (about 0.5 GB, no download).
+#[tauri::command]
+pub async fn codex_copy_from_app(on_event: tauri::ipc::Channel<CopyProgress>) -> Result<CopyInfo, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&COPYING) else {
+        return Err("busy".into());
+    };
+    let info = blocking(move || {
+        let home = home();
+        let mut last = 0u64;
+        uis_core::cli::codex::copy_from_app(&home, &mut |done, total| {
+            if done == total || done >= last + (16 << 20) {
+                last = done;
+                let _ = on_event.send(CopyProgress { done, total });
+            }
+        })
+    })
+    .await?;
+    if let Ok(mut r) = READY.lock() {
+        *r = None;
+    }
+    Ok(info)
+}
+
+fn assemble_for(home: &Home, pack_id: &str, kind: &str, yaw: Option<f64>, pitch: Option<f64>) -> Result<(uis_core::packs::Pack, Assembled), String> {
+    let s = settings::load(home);
+    let pack = uis_core::packs::load(home, pack_id).map_err(|e| format!("pack:{e}"))?;
+    let refs = if s.generate.style_refs { uis_core::generate::pack_refs(&pack, None).len() } else { 0 };
+    let ctx = uis_core::generate::context(&pack, &s, kind, refs, yaw, pitch);
+    let fixed = uis_core::prompt::assemble(&pack, &ctx)?;
+    Ok((pack, fixed))
+}
+
+/// The fixed prompt for a kind (no LLM).
+#[tauri::command]
+pub async fn prompt_preview(pack_id: String, kind: String, yaw: Option<f64>, pitch: Option<f64>) -> Result<Assembled, String> {
+    blocking(move || assemble_for(&home(), &pack_id, &kind, yaw, pitch).map(|(_, a)| a)).await
+}
+
+/// The note worked into the fixed prompt (an empty note calls nothing). No picture is made.
+#[tauri::command]
+pub async fn prompt_rewrite(
+    pack_id: String,
+    kind: String,
+    note: String,
+    cli: Option<String>,
+    yaw: Option<f64>,
+    pitch: Option<f64>,
+) -> Result<RewriteReport, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&LLM_BUSY) else {
+        return Err("busy".into());
+    };
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let (pack, fixed) = assemble_for(&home, &pack_id, &kind, yaw, pitch)?;
+        let cli = cli.unwrap_or_else(|| s.llm.rewriter.clone());
+        let clis = uis_core::cli::Clis { home: &home, settings: &s };
+        Ok(uis_core::cli::rewrite(&pack, &fixed, &note, &cli, &clis))
+    })
+    .await
+}
+
+/// Raw pictures from a capture: prompt (+ rewrite) and Codex. The capture must be in the tool's
+/// home or work folder.
+#[tauri::command]
+pub async fn generate_raw(
+    pack_id: String,
+    kind: String,
+    capture: String,
+    name: String,
+    note: String,
+    cli: Option<String>,
+) -> Result<GenerateReport, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&LLM_BUSY) else {
+        return Err("busy".into());
+    };
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let work = s.work_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| home.default_work_dir());
+        let input = PathBuf::from(&capture);
+        if !(is_inside(&input, home.root()) || is_inside(&input, &work)) {
+            return Err("outside".into());
+        }
+        let req = GenerateRequest {
+            input,
+            kind,
+            pack_id: Some(pack_id),
+            name: Some(name),
+            note,
+            rewriter: cli,
+            ..GenerateRequest::default()
+        };
+        Ok(uis_core::generate::generate(&home, &s, &req))
+    })
+    .await
+}
+
+/// An LLM's pass or fail for a candidate against its capture (`{pass, issues}`).
+#[tauri::command]
+pub async fn review(capture: String, candidate: String, kind: String, cli: Option<String>) -> Result<Value, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&LLM_BUSY) else {
+        return Err("busy".into());
+    };
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let work = s.work_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| home.default_work_dir());
+        let (a, b) = (PathBuf::from(&capture), PathBuf::from(&candidate));
+        for p in [&a, &b] {
+            if !(is_inside(p, home.root()) || is_inside(p, &work)) {
+                return Err("outside".into());
+            }
+        }
+        let cli = cli.unwrap_or_else(|| if s.llm.review == "codex" { "codex".into() } else { "claude".into() });
+        let (result, call) = if cli == "codex" {
+            uis_core::cli::codex::review(&home, &s, &a, &b, &uis_core::cli::claude::review_prompt(&kind, false))
+        } else {
+            uis_core::cli::claude::review(&home, &s, &a, &b, &uis_core::cli::claude::review_prompt(&kind, true))
+        };
+        Ok(match result {
+            Ok(v) => serde_json::json!({ "ok": true, "review": v, "call": call }),
+            Err(f) => serde_json::json!({ "ok": false, "failure": f, "call": call }),
+        })
+    })
+    .await
+}
+
+/// Pictures the tool asked Codex for today (status bar).
+#[tauri::command]
+pub fn images_today() -> usize {
+    uis_core::generate::images_today(&home())
+}
