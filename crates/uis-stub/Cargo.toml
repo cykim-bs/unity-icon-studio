@@ -7,6 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+serde_json.workspace = true
+image.workspace = true
 
 [dev-dependencies]
 uis-core = { path = "../uis-core" }

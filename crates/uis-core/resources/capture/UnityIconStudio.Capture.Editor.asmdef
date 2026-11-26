@@ -1,0 +1,14 @@
+{
+    "name": "UnityIconStudio.Capture.Editor",
+    "rootNamespace": "UnityIconStudio",
+    "references": [],
+    "includePlatforms": ["Editor"],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": false,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -12,6 +12,13 @@ commands:
                        list and classify the prefabs of a Unity project (no Unity needed)
   probe <project> [--json]
                        how a capture would run now (lock file, version, packages)
+  capture --project <folder> --prefab <asset> [<asset>...] [--mode auto|attach|batch]
+          [--out <folder>] [--pack <id>] [--thumb] [--json]
+                       capture prefabs (or model files) to transparent PNGs: in the open editor
+                       (unity CLI) or with Unity in batch mode when the project is closed
+  recover [--status] [--json]
+                       finish batch captures left by an earlier run (remove the temporary
+                       folder, put rewritten files back, run the after-capture hooks)
   hub [--json]         the projects Unity Hub lists
   packs [--json]       style packs (the default one and local ones)
   home [--json]        the tool's home folder and settings file
@@ -29,13 +36,22 @@ struct Args {
 impl Args {
     fn parse(raw: Vec<String>) -> Args {
         let mut out = Args { json: false, flags: Vec::new(), values: Vec::new(), positional: Vec::new() };
-        let mut it = raw.into_iter();
+        let mut it = raw.into_iter().peekable();
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--json" => out.json = true,
-                "--pack" => {
+                "--pack" | "--project" | "--mode" | "--out" => {
                     if let Some(v) = it.next() {
                         out.values.push((a, v));
+                    }
+                }
+                "--prefab" => {
+                    // One or more assets, up to the next option
+                    while let Some(v) = it.peek() {
+                        if v.starts_with("--") {
+                            break;
+                        }
+                        out.values.push((a.clone(), it.next().unwrap_or_default()));
                     }
                 }
                 _ if a.starts_with("--") => out.flags.push(a),
@@ -50,6 +66,9 @@ impl Args {
     fn value(&self, name: &str) -> Option<&str> {
         self.values.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
     }
+    fn all(&self, name: &str) -> Vec<String> {
+        self.values.iter().filter(|(k, _)| k == name).map(|(_, v)| v.clone()).collect()
+    }
 }
 
 fn main() {
@@ -62,6 +81,8 @@ fn main() {
     let code = match args.positional.first().map(String::as_str) {
         Some("scan") => scan(&args),
         Some("probe") => probe(&args),
+        Some("capture") => capture(&args),
+        Some("recover") => recover(&args),
         Some("hub") => {
             print_value(&serde_json::to_value(uis_core::project::hub_projects()).unwrap_or_default(), true);
             0
@@ -179,6 +200,94 @@ fn probe(args: &Args) -> i32 {
             value["pipelinePackage"],
             value["urp"]
         );
+    }
+    0
+}
+
+fn capture(args: &Args) -> i32 {
+    let project = args.value("--project").map(PathBuf::from).or_else(|| project_arg(args));
+    let Some(project) = project else {
+        eprintln!("uis capture: give --project <folder>
+
+{USAGE}");
+        return 2;
+    };
+    let mut items = args.all("--prefab");
+    if args.value("--project").is_some() {
+        items.extend(args.positional.iter().skip(1).cloned());
+    } else {
+        items.extend(args.positional.iter().skip(2).cloned());
+    }
+    if items.is_empty() {
+        eprintln!("uis capture: give --prefab <asset> [<asset>...]
+
+{USAGE}");
+        return 2;
+    }
+    let req = uis_core::capture::CaptureRequest {
+        project: uis_core::project::find_project_root(&project).unwrap_or(project),
+        items,
+        pack_id: args.value("--pack").map(str::to_string),
+        mode: args.value("--mode").map(str::to_string),
+        out_dir: args.value("--out").map(PathBuf::from),
+        purpose: if args.has("--thumb") { "thumb".into() } else { "capture".into() },
+        ..Default::default()
+    };
+    let home = Home::resolve();
+    let _ = home.ensure();
+    let mut last = String::new();
+    let report = uis_core::capture::capture(&home, &req, &mut |e| {
+        let line = format!("[{:>6.1}s] {:<7} {}/{} {}", e.elapsed_ms as f64 / 1000.0, e.stage, e.done, e.total, e.message);
+        if line != last {
+            eprintln!("{line}");
+            last = line;
+        }
+    });
+    if args.json {
+        print_value(&serde_json::to_value(&report).unwrap_or_default(), true);
+    } else {
+        println!("{}  {} ({})  run {}", report.project, report.mode, report.reason, report.run_id);
+        for it in &report.items {
+            println!("  {:<4} {:<9} {}  {}", if it.ok { "ok" } else { "FAIL" }, it.kind, it.prefab, it.error.as_deref().or(it.output.as_deref()).unwrap_or(""));
+        }
+        if let Some(g) = &report.git {
+            println!("git same {}  restored {}  other {}", g.same, g.restored.len(), g.other.len());
+        }
+        if let Some(e) = &report.error {
+            println!("error {e}");
+        }
+        println!("out {}  {} ms (unity {} ms)", report.out_dir, report.elapsed_ms, report.unity_ms);
+    }
+    if report.ok {
+        0
+    } else if report.error.is_none() {
+        3
+    } else {
+        1
+    }
+}
+
+fn recover(args: &Args) -> i32 {
+    let home = Home::resolve();
+    if args.has("--status") {
+        print_value(&serde_json::to_value(uis_core::capture::recovery_status(&home)).unwrap_or_default(), true);
+        return 0;
+    }
+    let done = uis_core::capture::recover(&home);
+    let pending = uis_core::capture::recovery_status(&home);
+    let value = json!({ "finished": done, "pending": pending });
+    if args.json {
+        print_value(&value, true);
+    } else {
+        for f in &done {
+            println!("finished {}  {}  exit {:?}  git same {}  {}", f.run_id, f.project, f.exit_code, f.git.same, f.error.as_deref().unwrap_or("ok"));
+        }
+        for p in &pending {
+            println!("pending  {}  {}  pid {}  running {}", p.run_id, p.project, p.pid, p.running);
+        }
+        if done.is_empty() && pending.is_empty() {
+            println!("nothing to recover");
+        }
     }
     0
 }

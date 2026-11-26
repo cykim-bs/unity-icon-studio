@@ -9,9 +9,19 @@
 //! - `sleep <secs> [--child]`: prints its process id (and with `--child` first starts a copy of
 //!   itself that sleeps as long and prints that one's id too), then sleeps.
 //! - `exit <code> [message]`: writes the message to stderr and ends with that code.
+//! - `args <log file> <code> [arg...]`: appends the arguments as one tab-separated line to the log
+//!   file, prints `args ok`, ends with that code (a capture hook).
+//! - `unity`: the Unity editor when started with `-batchmode`, else the `unity` CLI
+//!   (`--version`, `status --json`, `command "script run" ...`). See [`unity`].
+//!
+//! The Unity roles read `stub-scenario.txt` next to the program (`key=value` lines), not the
+//! environment: the batch editor is started through WMI and gets the user's environment, not the
+//! test's.
 
 use std::io::{Read, Write};
 use std::time::Duration;
+
+mod unity;
 
 fn own_name() -> bool {
     let stem = std::env::current_exe()
@@ -42,6 +52,8 @@ fn main() {
         "env" => env(&args),
         "sleep" => sleep(&args),
         "exit" => exit(&args),
+        "args" => args_log(&args),
+        "unity" => unity::main(&args),
         other => {
             eprintln!("uis-stub: unknown role {other:?}");
             64
@@ -113,5 +125,16 @@ fn exit(args: &[String]) -> i32 {
     if let Some(message) = args.get(1) {
         eprintln!("{message}");
     }
+    code
+}
+
+fn args_log(args: &[String]) -> i32 {
+    let Some(log) = args.first() else { return 64 };
+    let code: i32 = args.get(1).and_then(|a| a.parse().ok()).unwrap_or(0);
+    let line = args.iter().skip(2).cloned().collect::<Vec<_>>().join("\t");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(log) {
+        let _ = writeln!(f, "{line}");
+    }
+    println!("args ok");
     code
 }
