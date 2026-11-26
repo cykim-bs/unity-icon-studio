@@ -76,6 +76,9 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 2. **프리팹 고르기:** 가운데 목록에서 찾기(Ctrl+F)·분류 칩(기본 「3D만」)·종류 칩·폴더로 좁힙니다. Ctrl·Shift+클릭으로 여러 개를 고릅니다.
    「썸네일 만들기」는 보이는 3D 프리팹을 한 번의 촬영으로 128px 썸네일로 만듭니다(예상 시간을 먼저 묻습니다).
 3. **촬영 확인(선택):** 오른쪽 「찍기」(Ctrl+R)로 촬영본만 먼저 볼 수 있습니다. 「아이콘 만들기」는 촬영본이 없으면 먼저 찍습니다.
+   **구도** 칸에서 내려다보는 각·돌린 각·좌우 뒤집기·정면 축·루트 회전(눕혀 들어온 모델 세우기 같은 프리셋 또는 직접 입력)·투영(직교·원근 FOV)을 바꿀 수 있습니다.
+   값마다 「종류 기본」·「묶음 규칙」·「직접 바꿈」 중 어디서 왔는지 보이고, 「처음 값으로」가 사람이 바꾼 값을 지웁니다(프로젝트마다 저장).
+   구도를 바꾸면 촬영본이 낡았다고 표시되고, 다시 찍어야 반영됩니다. 프롬프트의 구도 문장은 늘 **촬영본을 찍은 값**으로 조립되므로 그림과 문구가 어긋나지 않습니다.
 4. **첨언(선택):** 비워 두면 고정 프롬프트를 그대로 보냅니다. 적으면 「재가공 미리보기」(Ctrl+Shift+Enter)로 바뀐 문장·더한 문장·반영하지 않은 부분을 그림 없이 먼저 볼 수 있습니다.
 5. **아이콘 만들기**(Ctrl+Enter): 촬영 → 프롬프트 → 재가공 → 생성 → 후처리 → 검사가 차례로 진행되고 단계마다 시간이 보입니다. Esc로 멈출 수 있습니다(촬영 중이면 이번 묶음이 끝난 뒤 멈춥니다).
 6. **결과:** 후보별 검사 통과 수와 「추천」, 최종 256·128·64px, 「생성 원본」, 검사 표가 나옵니다. 외곽선·배경만 바꿔 「후처리 다시」를 할 수 있습니다(그림을 다시 만들지 않음).
@@ -83,6 +86,10 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 8. **지난 작업:** 왼쪽 「지난 작업」 탭(Ctrl+2)에서 이전 결과를 다시 열어 다시 내보내거나, 후처리만 다시 하거나, 같은 설정으로 다시 만들 수 있습니다.
 
 ![재가공 미리보기: 바뀐 문장·더한 문장·반영하지 않은 부분(가짜 샘플 데이터)](docs/assets/screen-rewrite.webp)
+
+![구도 칸: 값마다 출처, 바꾼 뒤 다시 찍기 안내(가짜 샘플 데이터)](docs/assets/screen-camera.webp)
+
+첨언이 구도를 바꾸자고 하면(예: 「정면에서」) 재가공은 잠긴 구도 문장을 바꾸지 않고 「구도를 바꿔 다시 찍기」를 제안합니다. 누르면 구도 칸 값이 바뀌고 다시 찍습니다.
 
 여러 개를 고르고 「N개 만들기」를 누르면 촬영은 한 묶음으로, 생성은 하나씩 차례로 합니다. 사용 한도에 걸리면 남은 항목은 보내지 않고 멈춥니다.
 끝나면 「통과한 것 모두 내보내기」가 나옵니다.
@@ -93,7 +100,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 |---|---|
 | 왼쪽 탭 | 프로젝트(촬영 방식 점: 배치·열린 에디터·막힘) · 지난 작업 · 스타일 |
 | 가운데 | 찾기, 분류·종류 칩, 폴더, 썸네일 만들기, 프리팹 그리드 |
-| 오른쪽 | 촬영 미리보기(배경 체커·흰색·검정), 구도·종류, 첨언, 만들기 옵션(후보 수·외곽선·배경), 진행 단계, 결과·검사·내보내기 |
+| 오른쪽 | 촬영 미리보기(배경 체커·흰색·검정), 종류, 구도(각도·뒤집기·정면 축·루트 회전·투영), 첨언, 만들기 옵션(충실도·후보 수·외곽선·배경), 진행 단계, 결과·검사·내보내기 |
 | 상태바 | 프로젝트 경로 · 촬영 방식 · Codex·Claude·Unity 준비 상태 · 진행 · 오늘 만든 그림 수 · 버전 |
 
 ### 단축키
@@ -186,7 +193,8 @@ cargo run -q -p uis-cli -- run --project C:\Projects\MyGame --prefab Assets/Prop
 cargo run -q -p uis-cli -- help
 ```
 
-`scan`, `probe`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub` 명령이 있습니다.
+`scan`, `probe`, `camera`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub` 명령이 있습니다.
+`camera --project <폴더> --prefab <에셋> [--set pitch=45 --set yawSign=-1 --set rotation=270,0,0] [--reset]`는 구도 칸과 같은 값을 보고 바꿉니다.
 `run`은 `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N`, `--capture <png> --kind <종류>`(촬영 대신 그 그림)을 받고, `fidelity <촬영본> <생성본> [--review both]`는 충실도 측정과 검수만 합니다.
 
 ## 계정과 약관

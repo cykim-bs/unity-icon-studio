@@ -77,6 +77,12 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 2. **Pick prefabs:** narrow the grid with find (Ctrl+F), the class chips (「3D only」 by default), kind chips and folders. Ctrl/Shift+click picks several.
    「Make thumbnails」 captures the visible 3D prefabs in one request as 128 px thumbnails (it asks first, with an estimate).
 3. **Check the capture (optional):** 「Capture」 (Ctrl+R) shows the capture alone. 「Make icon」 captures first when there is no picture yet.
+   The **Composition** box changes how far the camera looks down and is turned, the side shown, the front axis, the root rotation (presets such as standing up a model that comes in lying down, or typed values) and the projection (orthographic, or perspective with a FOV).
+   Each value says whether it comes from the kind preset, the pack's rule or a change made here; 「Back to the start」 clears the changes (kept per project).
+   A change marks the capture as stale until it is captured again. The prompt's camera sentence is always built from **the values the capture was taken with**, so picture and words never disagree.
+   When a note asks for another camera (「from the front」), the rewrite keeps the locked camera sentence and offers 「Change the composition and capture again」, which sets the box and captures.
+
+   ![The Composition box: where each value comes from, and 「capture again」 after a change (made-up sample data)](docs/assets/screen-camera-en.webp)
 4. **Note (optional):** leave it empty to send the fixed prompt as it is. With a note, 「Preview rewrite」 (Ctrl+Shift+Enter) shows the changed and added sentences and what was left out, without a picture.
 5. **Make icon** (Ctrl+Enter): capture → prompt → rewrite → generate → finish → check, each step with its time. Esc stops it (a capture finishes its request first).
 6. **Result:** candidates with passed checks and 「Best」, the icon at 256, 128 and 64 px, the 「Raw picture」, the checks table. 「Finish again」 changes only the outline or background (no new picture).
@@ -92,7 +98,7 @@ Afterwards 「Export all that passed」 appears.
 |---|---|
 | Side tabs | Projects (capture dot: batch, open editor, blocked) · Runs · Styles |
 | Middle | Find, class and kind chips, folder, make thumbnails, the prefab grid |
-| Right | Capture preview (checker, white, black), kind, note, make options (candidates, outline, background), steps, result, checks, export |
+| Right | Capture preview (checker, white, black), kind, composition (angles, side, front axis, root rotation, projection), note, make options (fidelity, candidates, outline, background), steps, result, checks, export |
 | Status bar | Project path · capture mode · Codex, Claude, Unity readiness · progress · pictures made today · version |
 
 ### Shortcuts
@@ -185,7 +191,8 @@ cargo run -q -p uis-cli -- run --project C:\Projects\MyGame --prefab Assets/Prop
 cargo run -q -p uis-cli -- help
 ```
 
-Commands: `scan`, `probe`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub`.
+Commands: `scan`, `probe`, `camera`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub`.
+`camera --project <folder> --prefab <asset> [--set pitch=45 --set yawSign=-1 --set rotation=270,0,0] [--reset]` shows and changes the same values as the Composition box.
 `run` takes `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N` and `--capture <png> --kind <kind>` (that picture instead of a capture); `fidelity <capture> <generated> [--review both]` only measures and reviews.
 
 ## Accounts and terms
