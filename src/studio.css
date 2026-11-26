@@ -685,3 +685,74 @@ dl.details dd {
   display: grid;
   grid-template-rows: 1fr auto;
 }
+
+/* ---- result: finished icon, checks, post-process again, export (right column) */
+.result-box {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border, rgba(127, 127, 127, 0.25));
+}
+.icon-preview {
+  margin-top: 10px;
+  aspect-ratio: auto;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto auto;
+  gap: 10px;
+  padding: 10px;
+  justify-content: start;
+  align-items: end;
+}
+.icon-preview img {
+  object-fit: contain;
+}
+.icon-preview img.icon-256 {
+  width: 256px;
+  height: 256px;
+  max-width: 100%;
+}
+.icon-preview img.icon-64 {
+  width: 64px;
+  height: 64px;
+}
+.icon-preview figcaption {
+  grid-column: 1 / -1;
+  padding: 0;
+  text-align: left;
+}
+.checks-table {
+  margin: 10px 0;
+  font-size: 12px;
+}
+.checks-head {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.checks-head.ok {
+  color: var(--ok, #2f8f4e);
+}
+.checks-head.bad {
+  color: var(--warn, #d08a1e);
+}
+.checks-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.checks-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 6px 0 2px;
+  opacity: 0.75;
+}
+.checks-table td {
+  padding: 2px 4px 2px 0;
+}
+.checks-table td .ready-dot {
+  margin-right: 6px;
+}
+.checks-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.checks-table tr.bad td:first-child {
+  color: var(--warn, #d08a1e);
+}

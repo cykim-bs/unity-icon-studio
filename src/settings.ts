@@ -148,6 +148,7 @@ export const SETTINGS = {
   },
   "codex.path": { kind: "text", section: "generate", label: "settings.codexPath", hint: "settings.codexPath.hint", default: "", placeholder: "settings.codexPath.placeholder" },
   "codex.ignoreUserConfig": { kind: "toggle", section: "generate", label: "settings.ignoreUserConfig", hint: "settings.ignoreUserConfig.hint", default: true },
+  "codex.trimContext": { kind: "toggle", section: "generate", label: "settings.trimContext", hint: "settings.trimContext.hint", default: true },
   "codex.cleanGeneratedImages": {
     kind: "toggle",
     section: "generate",

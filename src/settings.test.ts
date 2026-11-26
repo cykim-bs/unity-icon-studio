@@ -49,6 +49,7 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
       expect(rust).toContain(`${field}: ${d.default},`);
     }
     expect(rust).toContain(`ignore_user_config: ${SETTINGS["codex.ignoreUserConfig"].default},`);
+    expect(rust).toContain(`trim_context: ${SETTINGS["codex.trimContext"].default},`);
     expect(rust).toContain(`clean_generated_images: ${SETTINGS["codex.cleanGeneratedImages"].default},`);
     expect(rust).toContain(`model: "${SETTINGS["claude.model"].default}".into()`);
   });

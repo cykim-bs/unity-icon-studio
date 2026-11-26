@@ -14,7 +14,7 @@
  */
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { call, captureImage, captureOnly, copyCodex, generateRaw, inTauri, promptRewrite, readiness } from "./backend";
+import { call, captureImage, captureOnly, copyCodex, exportIcons, generateRaw, inTauri, postRerun, promptRewrite, readiness } from "./backend";
 import { captureErrorText } from "./capture-text";
 import { applyDomTexts, currentLang, resolveLang, setLang, t } from "./i18n";
 import { applyFilter, CLASS_CHIPS, DEFAULT_FILTER, folderChoices, KIND_CHIPS, nextSelection, type ClassChip, type PrefabFilter } from "./prefab-filter";
@@ -81,7 +81,21 @@ let dropHover = false;
 const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {} });
 /** Capture state of the open project (cleared when another project is opened). */
 let cap: CaptureView = emptyCapture();
-const emptyGen = (cli: string): GenView => ({ note: "", cli, busy: "", diff: null, error: null, raw: null, rawInfo: "" });
+const emptyGen = (cli: string): GenView => ({
+  note: "",
+  cli,
+  busy: "",
+  diff: null,
+  error: null,
+  raw: null,
+  rawInfo: "",
+  job: null,
+  post: null,
+  icon: null,
+  outline: "code",
+  background: "auto",
+  exported: null,
+});
 /** Note, rewrite preview and raw picture of the one picked prefab (cleared when the pick changes). */
 let gen: GenView = emptyGen("claude");
 let genFor: string | null = null;
@@ -214,6 +228,12 @@ function renderBody() {
       rewrite: (item) => void runRewrite(item),
       generate: (item) => void runGenerate(item),
       checkReady: () => void checkReady(true),
+      postOption: (key, value) => {
+        gen[key] = value;
+      },
+      repost: () => void runPost(),
+      exportIcon: (item) => void runExport(item),
+      openPath: (path) => void call("open_path", { path }).catch((e) => flashStatus(t("status.openFailed", { text: String(e) }))),
     },
   );
   $("body-title").textContent = title || t("body.title");
@@ -559,6 +579,8 @@ async function runGenerate(item: PrefabItem) {
       const alpha = c.hasAlpha ? t("make.alpha") : t("make.opaque");
       gen.rawInfo = t("make.rawInfo", { w: c.width, h: c.height, s: (c.call.elapsedMs / 1000).toFixed(0), alpha });
       flashStatus(t("make.done", { s: (r.elapsedMs / 1000).toFixed(0) }), 5000);
+      gen.job = r.jobDir;
+      gen.exported = null;
     } else if (c?.failure) {
       gen.error = `image:${c.failure.kind}`;
       flashStatus(failureText(c.failure), 8000);
@@ -573,6 +595,44 @@ async function runGenerate(item: PrefabItem) {
     imagesToday = await call<number>("images_today").catch(() => imagesToday);
     renderBody();
     renderStatus();
+  }
+  if (gen.job && !gen.post) await runPost();
+}
+
+/** Post-processing of candidate 1 with the picked outline and background (no new picture). */
+async function runPost() {
+  if (!gen.job || gen.busy) return;
+  gen.busy = "post";
+  gen.error = null;
+  renderBody();
+  renderStatus();
+  try {
+    gen.post = await postRerun(gen.job, 1, { outline: gen.outline, background: gen.background });
+    gen.icon = await captureImage(gen.post.sizes[0].path).catch(() => null);
+    gen.exported = null;
+  } catch (e) {
+    gen.error = String(e);
+    flashStatus(t("result.err.post", { code: String(e) }), 6000);
+  } finally {
+    gen.busy = "";
+    renderBody();
+    renderStatus();
+  }
+}
+
+/** Copies the finished icon to the export folder from the settings. */
+async function runExport(item: PrefabItem) {
+  if (!gen.job || gen.busy || !gen.post) return;
+  gen.busy = "export";
+  renderBody();
+  try {
+    gen.exported = await exportIcons(gen.job, 1, [], item.name, null);
+    if (gen.exported.ok) flashStatus(t("result.exported", { n: gen.exported.files.length, folder: gen.exported.folder }), 5000);
+  } catch (e) {
+    gen.exported = { ok: false, folder: "", files: [], error: String(e) };
+  } finally {
+    gen.busy = "";
+    renderBody();
   }
 }
 

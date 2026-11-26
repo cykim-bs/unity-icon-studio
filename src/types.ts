@@ -238,3 +238,44 @@ export interface GenerateReport {
   error: string | null;
   elapsedMs: number;
 }
+
+/** One pixel check of an icon (checks.rs). */
+export interface CheckItem {
+  id: string;
+  /** frame, outline, color or generate */
+  group: string;
+  value: number;
+  min: number | null;
+  max: number | null;
+  pass: boolean;
+}
+
+export interface CheckReport {
+  pass: boolean;
+  failed: string[];
+  outlineOnly: boolean;
+  items: CheckItem[];
+  metrics: { outlinePx: number; outlineColor: string; [key: string]: unknown };
+}
+
+/** Post-processing of one candidate (`post\cand-NN\checks.json`). */
+export interface PostJobReport {
+  ok: boolean;
+  jobDir: string;
+  candidate: number;
+  kind: string;
+  master: string;
+  options: Record<string, unknown> & { outline: string; background: string };
+  post: { alphaSource: string; removedParts: number; layout: { strokePx: number } };
+  generated: { report: CheckReport; iou: number | null; modelOutline: boolean; nativeAlpha: boolean };
+  sizes: { size: number; path: string; checks: CheckReport }[];
+  pass: boolean;
+  elapsedMs: number;
+}
+
+export interface ExportReport {
+  ok: boolean;
+  folder: string;
+  files: { size: number; path: string }[];
+  error: string | null;
+}

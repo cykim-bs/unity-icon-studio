@@ -69,6 +69,9 @@ pub fn run() {
             commands::generate_raw,
             commands::review,
             commands::images_today,
+            commands::post_rerun,
+            commands::export,
+            commands::jobs_list,
         ])
         .setup(|app| {
             let home = uis_core::home::Home::resolve();

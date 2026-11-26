@@ -446,3 +446,62 @@ pub async fn review(capture: String, candidate: String, kind: String, cli: Optio
 pub fn images_today() -> usize {
     uis_core::generate::images_today(&home())
 }
+
+/// The job folder must be inside the tool's home or work folder.
+fn job_folder(home: &Home, s: &Settings, job: &str) -> Result<PathBuf, String> {
+    let work = s.work_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| home.default_work_dir());
+    let dir = PathBuf::from(job);
+    if !(is_inside(&dir, home.root()) || is_inside(&dir, &work)) {
+        return Err("outside".into());
+    }
+    if !dir.join("job.json").is_file() {
+        return Err("noJob".into());
+    }
+    Ok(dir)
+}
+
+/// Post-processing of a candidate again with other options (no new picture).
+#[tauri::command]
+pub async fn post_rerun(job: String, cand: u32, options: Map<String, Value>) -> Result<uis_core::jobs::PostJobReport, String> {
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let dir = job_folder(&home, &s, &job)?;
+        uis_core::jobs::post_candidate(&home, &s, &dir, cand.max(1), &Value::Object(options))
+    })
+    .await
+}
+
+/// Copies the finished icons of a candidate to the export folder (never into a Unity project).
+#[tauri::command]
+pub async fn export(job: String, cand: u32, sizes: Vec<u32>, name: String, folder: Option<String>) -> Result<uis_core::export::ExportReport, String> {
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let dir = job_folder(&home, &s, &job)?;
+        let folder = folder.filter(|f| !f.trim().is_empty()).or_else(|| s.export_dir.clone()).ok_or("noExportDir")?;
+        let post = dir.join("post").join(format!("cand-{:02}", cand.max(1)));
+        let sizes = if sizes.is_empty() { s.export_sizes.clone() } else { sizes };
+        let mut icons = Vec::new();
+        for size in sizes {
+            let f = if size == 1024 { post.join("master-1024.png") } else { post.join(format!("icon-{size}.png")) };
+            if !f.is_file() {
+                return Err(format!("noIcon:{size}"));
+            }
+            icons.push((size, f));
+        }
+        Ok(uis_core::export::export(&icons, Path::new(&folder), &s.export_name, &name, &s, Some(&dir)))
+    })
+    .await
+}
+
+/// Recent job folders (newest first).
+#[tauri::command]
+pub async fn jobs_list(limit: Option<usize>) -> Result<Vec<Value>, String> {
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        Ok(uis_core::jobs::list(&home, &s, limit.unwrap_or(50)))
+    })
+    .await
+}

@@ -8,7 +8,7 @@
  * ?body=hidden ?frame=<width>x<height>
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { CaptureEvent, CaptureReport, CopyInfo, GenerateReport, Readiness, RewriteReport } from "./types";
+import type { CaptureEvent, CaptureReport, CheckItem, CheckReport, CopyInfo, ExportReport, GenerateReport, PostJobReport, Readiness, RewriteReport } from "./types";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const inTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
@@ -251,6 +251,52 @@ export function promptRewrite(packId: string, kind: string, note: string, cli: s
 export function generateRaw(packId: string, kind: string, capture: string, name: string, note: string, cli: string): Promise<GenerateReport> {
   if (!inTauri) return previewGenerate(note);
   return invoke<GenerateReport>("generate_raw", { packId, kind, capture, name, note, cli });
+}
+
+/** Post-processing of a candidate again with other options (no new picture). */
+export function postRerun(job: string, cand: number, options: Record<string, unknown>): Promise<PostJobReport> {
+  if (!inTauri) return previewPost(options);
+  return invoke<PostJobReport>("post_rerun", { job, cand, options });
+}
+
+/** Copies the finished icons out of the job (the folder from the settings when `folder` is null). */
+export function exportIcons(job: string, cand: number, sizes: number[], name: string, folder: string | null): Promise<ExportReport> {
+  if (!inTauri) return Promise.resolve({ ok: true, folder: "(preview)", files: [{ size: 256, path: `(preview)/icon_${name}.png` }], error: null });
+  return invoke<ExportReport>("export", { job, cand, sizes, name, folder });
+}
+
+function previewItem(id: string, group: string, value: number, min: number | null, max: number | null): CheckItem {
+  return { id, group, value, min, max, pass: (min === null || value >= min) && (max === null || value <= max) };
+}
+
+/** Made-up checks for the browser preview. */
+async function previewPost(options: Record<string, unknown>): Promise<PostJobReport> {
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  const stroke = options.outline === "none" ? 0 : 3.7;
+  const items = [
+    previewItem("cornerAlpha", "frame", 0, null, 0),
+    previewItem("size", "frame", 0.88, 0.82, 0.995),
+    previewItem("fill", "frame", 0.51, 0.38, 0.72),
+    previewItem("largestPart", "frame", 1, 0.98, null),
+    ...(options.outline === "none" ? [] : [previewItem("outlineWidth", "outline", stroke, 3, 5), previewItem("outlineUniform", "outline", 0.99, 0.75, null)]),
+    previewItem("saturation", "color", 0.52, 0.35, 0.62),
+    previewItem("value", "color", 0.86, 0.74, 0.96),
+  ];
+  const report: CheckReport = { pass: items.every((i) => i.pass), failed: items.filter((i) => !i.pass).map((i) => i.id), outlineOnly: false, items, metrics: { outlinePx: stroke, outlineColor: "#753719" } };
+  const gen = [previewItem("iou", "generate", 0.88, 0.8, null), previewItem("nativeAlpha", "generate", 1, 1, null)];
+  return {
+    ok: true,
+    jobDir: "(preview)",
+    candidate: 1,
+    kind: "building",
+    master: "preview:1",
+    options: { outline: String(options.outline ?? "code"), background: String(options.background ?? "auto") },
+    post: { alphaSource: "native", removedParts: 0, layout: { strokePx: stroke ? 4.2 : 0 } },
+    generated: { report: { pass: true, failed: [], outlineOnly: false, items: gen, metrics: { outlinePx: 0, outlineColor: "" } }, iou: 0.88, modelOutline: false, nativeAlpha: true },
+    sizes: [{ size: 256, path: "preview:2", checks: report }],
+    pass: report.pass,
+    elapsedMs: 300,
+  };
 }
 
 export function readiness(refresh: boolean): Promise<Readiness> {
