@@ -165,6 +165,13 @@ pub fn review(home: &Home, settings: &Settings, capture: &Path, candidate: &Path
         }
         Ok(_) => run_json(&found, settings, &dir, prompt, crate::prompt::REVIEW_SCHEMA, "Read", "review"),
     };
+    let r = match r {
+        (Ok(v), c) if !super::is_review_answer(&v) => {
+            let f = Failure::new(FailKind::BadJson, "claude", "not a review answer");
+            (Err(f), c)
+        }
+        other => other,
+    };
     super::remove_temp(&dir);
     super::log_call(home, &r.1);
     r

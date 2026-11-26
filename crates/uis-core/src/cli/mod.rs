@@ -26,6 +26,12 @@ use errors::{FailKind, Failure};
 
 pub const CLIS: &[&str] = &["claude", "codex"];
 
+/// A review answer has a yes/no `pass` and (when present) a list of `issues`. Anything else (an
+/// edit list, a sentence) is not a review, whatever the CLI's exit code said.
+pub fn is_review_answer(v: &serde_json::Value) -> bool {
+    v.get("pass").is_some_and(|p| p.is_boolean()) && v.get("issues").is_none_or(|i| i.is_array())
+}
+
 /// Where a CLI was found.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]

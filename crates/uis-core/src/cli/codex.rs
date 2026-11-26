@@ -696,7 +696,7 @@ pub fn review(home: &Home, settings: &Settings, capture: &Path, candidate: &Path
                     (Err(f), c)
                 }
                 None => match serde_json::from_str::<Value>(last.trim()) {
-                    Ok(v) if v.is_object() => (Ok(v), call("review", Some(&out), None)),
+                    Ok(v) if super::is_review_answer(&v) => (Ok(v), call("review", Some(&out), None)),
                     _ => {
                         let f = Failure::new(FailKind::BadJson, "codex", "no JSON answer");
                         let c = call("review", Some(&out), Some(&f));
@@ -814,5 +814,15 @@ mod tests {
         let mut c = crate::settings::Settings::default();
         c.claude.path = Some("C:/fake/nowhere/claude.exe".into());
         assert!(crate::cli::claude::find(&c).is_none());
+    }
+
+    #[test]
+    fn a_review_answer_says_pass_or_fail() {
+        use crate::cli::is_review_answer;
+        assert!(is_review_answer(&serde_json::json!({ "pass": true, "issues": [] })));
+        assert!(is_review_answer(&serde_json::json!({ "pass": false })));
+        assert!(!is_review_answer(&serde_json::json!({ "replace": [], "add": [] })), "an edit list is not a review");
+        assert!(!is_review_answer(&serde_json::json!({ "pass": "yes" })));
+        assert!(!is_review_answer(&serde_json::json!({ "pass": true, "issues": "none" })));
     }
 }

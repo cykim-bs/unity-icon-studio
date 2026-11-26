@@ -10,7 +10,7 @@
 //! - `claude_login`: `no` makes `auth status` say `loggedIn: false`
 //!
 //! Text answers: `reply-<n>.json` next to the program for the n-th call of that role (1-based),
-//! else `reply.json`, else a small edit list. Every call appends one line to `calls.log` next to
+//! else `reply.json`, else a small edit list (a review: `{pass: true, issues: []}`). Every call appends one line to `calls.log` next to
 //! the program (`role<TAB>kind<TAB>stdin bytes<TAB>names of CLAUDE*, ANTHROPIC*, OPENAI* variables`)
 //! and writes its stdin to `<role>-stdin-<n>.txt` (Codex also its arguments to `codex-args-<n>.txt`).
 
@@ -193,7 +193,9 @@ pub fn codex(args: &[String]) -> i32 {
             0
         }
         _ => {
-            let answer = reply(n, default_edits()).to_string();
+            let schema = value_after(args, "--output-schema").and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
+            let default = if schema.contains("\"pass\"") { json!({ "pass": true, "issues": [] }) } else { default_edits() };
+            let answer = reply(n, default).to_string();
             msg(&answer);
             write_last(&answer);
             line(json!({ "type": "turn.completed" }));
