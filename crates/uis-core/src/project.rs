@@ -111,7 +111,13 @@ pub fn read_branch(project: &Path) -> Option<String> {
         let r = r.trim();
         return Some(r.strip_prefix("refs/heads/").unwrap_or(r).to_string());
     }
-    Some(format!("(detached {})", &head[..head.len().min(9)]))
+    // A commit id. Anything else (a broken or non-ASCII file) gives no branch; cut by
+    // characters, never by bytes.
+    let short: String = head.chars().take(9).collect();
+    if short.is_empty() || !short.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    Some(format!("(detached {short})"))
 }
 
 pub fn read_facts(project: &Path) -> ProjectFacts {
@@ -297,6 +303,11 @@ mod tests {
         assert!(f.urp && f.pipeline_package && f.is_git);
         assert_eq!(f.branch.as_deref(), Some("feature/x"));
         assert_eq!(find_project_root(&dir.join("Assets/Sub")), Some(dir.clone()));
+        std::fs::write(dir.join(".git/HEAD"), "0123456789abcdef\n").unwrap();
+        assert_eq!(read_branch(&dir).as_deref(), Some("(detached 012345678)"));
+        // not a commit id and not ASCII: no branch, and no panic
+        std::fs::write(dir.join(".git/HEAD"), "\u{ac00}\u{ac01}\u{ac02}\u{ac03}").unwrap();
+        assert_eq!(read_branch(&dir), None);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
