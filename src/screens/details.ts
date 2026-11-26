@@ -233,12 +233,14 @@ function previewBox(item: PrefabItem, cap: CaptureView, bg: string): HTMLElement
   box.id = "capture-preview";
   box.tabIndex = 0;
   const src = cap.images[item.path];
+  if (cap.running) box.classList.add("busy");
   if (src) {
     const img = el("img");
     img.src = src;
     img.alt = t("capture.preview");
     img.draggable = false;
     box.append(img);
+    if (cap.running) box.append(el("figcaption", "capture-busy", t("capture.running")));
   } else {
     const fail = cap.failures[item.path];
     box.append(el("figcaption", fail ? "warn-text" : "muted", fail ? t("capture.itemFailed", { text: itemErrorText(fail) }) : t("capture.none")));

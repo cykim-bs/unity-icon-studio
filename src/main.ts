@@ -131,6 +131,8 @@ let previewBg = readPref("previewBg", "checker", (v): v is string => isString(v)
 const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {}, stale: {} });
 /** The camera of the one picked prefab, and which prefab (and kind) it is for. */
 let camera: CameraView | null = null;
+/** When the capture on screen started (status bar time). */
+let capStarted = 0;
 let cameraFor: string | null = null;
 /** Capture state of the open project (cleared when another project is opened). */
 let cap: CaptureView = emptyCapture();
@@ -441,7 +443,7 @@ function renderStatus() {
     const it = run.items.find((i) => i.state === "running");
     const s = Math.round((Date.now() - run.startedMs) / 1000);
     progress = it ? t("status.making", { name: it.name, s }) : t("status.capturing", { s });
-  } else if (cap.running) progress = cap.progress;
+  } else if (cap.running) progress = `${t("status.capturing", { s: Math.round((Date.now() - capStarted) / 1000) })} · ${cap.progress}`;
   else if (scanning) progress = t("status.scanning");
   else if (scan) progress = t("status.scanned", { n: scan.total, ms: scan.elapsedMs });
   $("status-progress-text").textContent = progress;
@@ -832,6 +834,10 @@ async function runCapture(items: PrefabItem[]) {
   cap.running = true;
   cap.error = null;
   cap.progress = t("capture.running");
+  capStarted = Date.now();
+  // The last notice (an earlier capture's time) must not look like this one's result
+  endFlash();
+  startTick();
   renderBody();
   renderStatus();
   try {
@@ -860,12 +866,14 @@ async function runCapture(items: PrefabItem[]) {
     if (report.error) flashStatus(captureErrorText(report.error), 6000);
     else flashStatus(report.failed ? t("capture.doneFailed", { ok, failed: report.failed, s }) : t("capture.done", { ok, s }), 5000);
     if (report.pending) void checkRecovery();
+    warnLeft(report.git?.left ?? []);
   } catch (e) {
     cap.error = String(e) === "busy" ? "busy" : String(e);
     flashStatus(errorText(String(e)), 5000);
   } finally {
     cap.running = false;
     cap.progress = "";
+    if (!running()) stopTick();
     if (currentId === id) {
       renderBody();
       renderStatus();
@@ -995,6 +1003,7 @@ async function startMake(items: PrefabItem[], extra: { note?: string; cli?: stri
       flashStatus(t("run.done", { ok: c, n: report.items.length, s: Math.round(report.elapsedMs / 1000) }), 6000);
     }
     if (report.capture?.pending) void checkRecovery();
+    warnLeft(report.capture?.left ?? []);
     if (report.items.some((i) => i.jobDir)) noteNewRuns(report.items.filter((i) => i.jobDir).length);
   } catch (e) {
     if (run) {
@@ -1344,6 +1353,13 @@ async function runCopyCodex() {
     $("status-busy").hidden = true;
     void checkReady(true);
   }
+}
+
+/** Files a capture left changed in the project (not put back): a person should look before committing. */
+function warnLeft(left: string[]) {
+  if (!left.length) return;
+  const files = left.slice(0, 4).map((l) => l.slice(3)).join(", ") + (left.length > 4 ? ` +${left.length - 4}` : "");
+  showBanner({ key: `left-${left.join("|")}`, message: t("capture.leftChanged", { n: left.length, files }), warn: true });
 }
 
 /** Batch captures left by an earlier run: a banner to clean them up (or one saying Unity still runs). */

@@ -1264,3 +1264,19 @@ dl.details dd {
 .camera-xyz[hidden] {
   display: none;
 }
+
+/* ---- a capture on the way: the old picture dims, a line says so */
+.capture-preview.busy img {
+  opacity: 0.4;
+}
+.capture-preview .capture-busy {
+  position: absolute;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+.capture-preview {
+  position: relative;
+}

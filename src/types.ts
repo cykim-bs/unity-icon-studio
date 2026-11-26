@@ -113,6 +113,9 @@ export interface CaptureReport {
   exitCode?: number;
   pending: boolean;
   logTail: string[];
+  /** Tracked files around the capture (gitguard.rs): put back for line endings only, and what the
+   * capture left changed */
+  git?: { lineEndings?: string[]; left?: string[]; restored?: string[] } | null;
   unityMs: number;
   elapsedMs: number;
 }
@@ -371,7 +374,7 @@ export interface RunReport {
   cancelled: boolean;
   stopped: string | null;
   error: string | null;
-  capture: { runId: string; mode: string; reason: string; ok: boolean; error: string | null; failed: number; pending: boolean; elapsedMs: number } | null;
+  capture: { runId: string; mode: string; reason: string; ok: boolean; error: string | null; failed: number; pending: boolean; elapsedMs: number; lineEndings?: string[]; left?: string[] } | null;
   items: RunItem[];
   elapsedMs: number;
 }
