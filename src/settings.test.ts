@@ -39,6 +39,13 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
     expect(options("claude.effort")).toEqual(rustList("CLAUDE_EFFORTS"));
     expect(options("generate.outline")).toEqual(rustList("OUTLINES"));
     expect(options("generate.background")).toEqual(rustList("BACKGROUNDS"));
+    expect(options("llm.fidelityReview")).toEqual(rustList("FIDELITY_REVIEWERS"));
+    expect(options("generate.fidelity")).toEqual(["strict", "stylized"]);
+    expect(rust).toContain(`fidelity: "${SETTINGS["generate.fidelity"].default}".into()`);
+    expect(rust).toContain(`fidelity_review: "${SETTINGS["llm.fidelityReview"].default}".into()`);
+    const r = SETTINGS["generate.fidelityRetries"] as SettingDef & { min: number; max: number };
+    expect([r.min, r.max]).toEqual(rustRange("fidelity_retries"));
+    expect(rust).toContain(`fidelity_retries: ${r.default},`);
   });
 
   it("has the same ranges and defaults", () => {

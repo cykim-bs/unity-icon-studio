@@ -152,6 +152,7 @@ const emptyGen = (cli: string): GenView => ({
   candidates: settingNumber("generate.candidates", 1),
   outline: settingText("generate.outline", "code"),
   background: settingText("generate.background", "transparent") === "flat" ? "key" : "auto",
+  fidelity: settingText("generate.fidelity", "strict"),
   result: null,
   exportName: "",
   exportSizes: exportSizes(),
@@ -344,6 +345,19 @@ function renderBody() {
       option: (k, value) => {
         if (k === "candidates") gen.candidates = Number(value) || 1;
         else gen[k] = value;
+        if (k === "fidelity") renderBody();
+      },
+      fidelityChoice: (kind) => {
+        if (kind === "stylized") {
+          gen.fidelity = "stylized";
+          const items = picked();
+          if (items.length) void startMake(items);
+          else renderBody();
+          return;
+        }
+        const note = document.getElementById("make-note") as HTMLTextAreaElement | null;
+        note?.focus();
+        note?.scrollIntoView({ block: "center" });
       },
       pickCand: (n) => {
         const r = shownResult();
@@ -874,6 +888,7 @@ async function startMake(items: PrefabItem[], extra: { note?: string; cli?: stri
         candidates: gen.candidates,
         outline: gen.outline,
         background: gen.background,
+        fidelity: gen.fidelity,
         outlineOffOk: offOk,
         noRefs: !!extra.noRefs,
       },
@@ -938,7 +953,7 @@ async function settleOne(it: RunItem) {
 }
 
 function candFrom(c: RunItem["candidates"][number]): CandView {
-  return { cand: c.cand, post: c.post, failure: c.failure, passed: c.passed, checked: c.checked };
+  return { cand: c.cand, post: c.post, failure: c.failure, passed: c.passed, checked: c.checked, attempt: c.attempt ?? 1, correction: c.correction ?? null };
 }
 
 function scoreOf(p: PostJobReport): { passed: number; checked: number } {
@@ -952,11 +967,13 @@ function scoreOf(p: PostJobReport): { passed: number; checked: number } {
 }
 
 async function resultFrom(job: string, name: string, kind: string, cands: CandView[], best: number | null, outlineKept: boolean, from: ResultView["from"]): Promise<ResultView> {
-  const r: ResultView = { job, name, kind, cands, best, cand: best ?? cands[0]?.cand ?? 1, icons: {}, raws: {}, showRaw: false, exported: null, outlineKept, from };
+  const r: ResultView = { job, name, kind, cands, best, cand: best ?? cands[0]?.cand ?? 1, icons: {}, raws: {}, maps: {}, showRaw: false, exported: null, outlineKept, from };
   for (const c of cands) {
     if (c.post) {
       r.icons[c.cand] = await captureImage(c.post.sizes[0].path).catch(() => "");
       if (c.post.raw) r.raws[c.cand] = await captureImage(c.post.raw).catch(() => "");
+      const map = c.post.fidelity?.map;
+      if (map) r.maps![c.cand] = await captureImage(map).catch(() => "");
     }
   }
   return r;

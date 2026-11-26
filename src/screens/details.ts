@@ -40,6 +40,9 @@ export interface CandView {
   failure: Failure | null;
   passed: number;
   checked: number;
+  /** 2 and more: a try with corrections after a failed fidelity check */
+  attempt?: number;
+  correction?: string | null;
 }
 
 /** A finished (or failed) job: what the result panel shows. */
@@ -55,6 +58,8 @@ export interface ResultView {
   /** Icon and raw picture (data: URLs) by candidate */
   icons: Record<number, string>;
   raws: Record<number, string>;
+  /** Fidelity maps (data: URLs) by candidate */
+  maps?: Record<number, string>;
   showRaw: boolean;
   exported: ExportReport | null;
   outlineKept: boolean;
@@ -76,6 +81,8 @@ export interface GenView {
   candidates: number;
   outline: string;
   background: string;
+  /** strict (keep the capture, add nothing) or stylized */
+  fidelity: string;
   result: ResultView | null;
   /** File name typed for the export ("" = the settings' rule) */
   exportName: string;
@@ -114,7 +121,9 @@ export interface DetailsHooks {
   make(items: PrefabItem[]): void;
   retry(kind: RetryKind, items: PrefabItem[]): void;
   cancel(): void;
-  option(key: "candidates" | "outline" | "background", value: string): void;
+  option(key: "candidates" | "outline" | "background" | "fidelity", value: string): void;
+  /** After a failed strict picture: make it again stylized, or go to the note */
+  fidelityChoice(kind: "stylized" | "note"): void;
   pickCand(n: number): void;
   toggleRaw(): void;
   setBg(bg: string): void;
@@ -260,6 +269,10 @@ export function runErrorText(code: string): string {
 
 function optionsRow(g: GenView, disabled: boolean, hooks: DetailsHooks): HTMLElement {
   const row = el("div", "make-row make-options");
+  const fid = select(t("make.fidelity"), ["strict", "stylized"].map((v) => [v, t(`make.fidelity.${v}`)]), g.fidelity, disabled, (v) => hooks.option("fidelity", v));
+  fid.id = "make-fidelity";
+  fid.title = t(`make.fidelity.${g.fidelity}.hint`);
+  row.append(el("span", "muted", t("make.fidelity")), fid);
   const cands = select(t("make.candidates"), ["1", "2", "3", "4"].map((n) => [n, n]), String(g.candidates), disabled, (v) => hooks.option("candidates", v));
   const outline = select(t("result.outline"), ["code", "model", "none"].map((v) => [v, t(`result.outline.${v}`)]), g.outline, disabled, (v) => hooks.option("outline", v));
   const bg = select(t("make.background"), ["auto", "key"].map((v) => [v, t(`make.background.${v}`)]), g.background, disabled, (v) => hooks.option("background", v));
@@ -406,7 +419,8 @@ function resultSection(r: ResultView, view: DetailsView, hooks: DetailsHooks, op
     box.append(el("p", "warn-text", failureText(c.failure)));
   }
   if (r.outlineKept) box.append(el("p", "body-hint", t("result.outlineKept")));
-  if (p) box.append(renderChecks(p.sizes[0].checks, p.generated.report));
+  if (p) box.append(renderChecks(p.sizes[0].checks, p.generated.report, p.fidelity?.report ?? null));
+  if (p && p.fidelityMode === "strict") box.append(fidelityBlock(c, r, hooks));
   // finish again (no new picture)
   const opts = el("div", "make-row");
   opts.append(
@@ -425,6 +439,49 @@ function resultSection(r: ResultView, view: DetailsView, hooks: DetailsHooks, op
     const row = el("div", "body-actions");
     row.append(button(t("runs.rerun"), () => hooks.rerunOpened(), "act-btn"), button(t("runs.close"), () => hooks.closeOpened(), "link-btn"));
     box.append(row);
+  }
+  return box;
+}
+
+/** Strict pictures: the reviews' findings, the fidelity map, and the choices when it failed. */
+function fidelityBlock(c: CandView, r: ResultView, hooks: DetailsHooks): HTMLElement {
+  const p = c.post!;
+  const box = el("section", "fidelity-box");
+  box.setAttribute("aria-label", t("fidelity.title"));
+  if ((c.attempt ?? 1) > 1) box.append(el("p", "body-hint", t("fidelity.retried", { n: (c.attempt ?? 2) - 1 })));
+  for (const rv of p.reviews ?? []) {
+    const name = rv.cli === "claude" ? "Claude" : "Codex";
+    const line = el("p", `review-head ${rv.ok && rv.pass ? "ok" : "bad"}`);
+    line.textContent = !rv.ok
+      ? t("review.error", { cli: name, code: rv.failure ? `${rv.failure.kind}` : "?" })
+      : rv.pass
+        ? t("review.pass", { cli: name })
+        : t("review.fail", { cli: name, n: rv.failing.length });
+    box.append(line);
+    const list = el("ul", "review-list");
+    for (const f of rv.failing) list.append(el("li", "warn-text", `${t(`review.kind.${f.kind}`)}: ${f.what}${f.detail ? ` (${f.detail})` : ""}`));
+    for (const f of rv.notes) list.append(el("li", "muted", `${t(`review.kind.${f.kind}`)}: ${f.what}${f.detail ? ` (${f.detail})` : ""}`));
+    if (list.childElementCount) box.append(list);
+  }
+  if (p.fidelity?.suspect && !(p.reviews ?? []).some((x) => x.ok)) box.append(el("p", "body-hint warn-text", t("fidelity.suspectNoReview")));
+  const map = r.maps?.[c.cand];
+  if (map) {
+    const d = el("details", "fidelity-map");
+    d.append(el("summary", "", t("fidelity.map")));
+    const img = el("img");
+    img.src = map;
+    img.alt = t("fidelity.map");
+    img.draggable = false;
+    d.append(img, el("p", "muted", t("fidelity.mapLegend")));
+    box.append(d);
+  }
+  if (!p.pass) {
+    const row = el("div", "body-actions");
+    row.append(
+      button(t("fidelity.toStylized"), () => hooks.fidelityChoice("stylized"), "act-btn"),
+      button(t("fidelity.fixNote"), () => hooks.fidelityChoice("note"), "act-btn"),
+    );
+    box.append(el("p", "body-hint", t("fidelity.failedHint")), row);
   }
   return box;
 }

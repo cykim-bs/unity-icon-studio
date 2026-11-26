@@ -13,7 +13,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
   return node;
 }
 
-export const CHECK_GROUPS = ["frame", "outline", "color", "generate"] as const;
+export const CHECK_GROUPS = ["frame", "outline", "color", "generate", "fidelity"] as const;
 
 /** Items that are yes/no (1 = yes): shown as a word, not a number. */
 const FLAGS = new Set(["canvas", "notTouching", "nativeAlpha", "noModelOutline"]);
@@ -33,14 +33,16 @@ export function rangeText(item: CheckItem): string {
   return "";
 }
 
-/** The table for `final` (the icon) and `raw` (the generated picture's checks). */
-export function renderChecks(final: CheckReport, raw: CheckReport | null): HTMLElement {
+/** The table for `final` (the icon), `raw` (the generated picture's checks) and `fidelity` (its
+ * checks against the capture). */
+export function renderChecks(final: CheckReport, raw: CheckReport | null, fidelity: CheckReport | null = null): HTMLElement {
   const box = el("section", "checks-table");
   box.setAttribute("aria-label", t("checks.title"));
-  const head = el("p", final.pass ? "checks-head ok" : "checks-head bad");
-  head.textContent = final.pass ? t("checks.pass") : t("checks.fail", { n: final.failed.length });
+  const items = [...final.items, ...(raw?.items.filter((i) => i.group === "generate") ?? []), ...(fidelity?.items ?? [])];
+  const failed = items.filter((i) => !i.pass).length;
+  const head = el("p", failed === 0 ? "checks-head ok" : "checks-head bad");
+  head.textContent = failed === 0 ? t("checks.pass") : t("checks.fail", { n: failed });
   box.append(head);
-  const items = [...final.items, ...(raw?.items.filter((i) => i.group === "generate") ?? [])];
   const table = el("table");
   for (const group of CHECK_GROUPS) {
     const rows = items.filter((i) => i.group === group);

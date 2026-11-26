@@ -270,6 +270,10 @@ export interface PostJobReport {
   post: { alphaSource: string; removedParts: number; layout: { strokePx: number } };
   generated: { report: CheckReport; iou: number | null; modelOutline: boolean; nativeAlpha: boolean };
   sizes: { size: number; path: string; checks: CheckReport }[];
+  /** strict or stylized ("" without a capture) */
+  fidelityMode?: string;
+  fidelity?: FidelityReport | null;
+  reviews?: FidelityReview[];
   pass: boolean;
   elapsedMs: number;
 }
@@ -306,6 +310,38 @@ export interface RunCandidate {
   postError: string | null;
   passed: number;
   checked: number;
+  /** 1 for the first pictures, 2 and more for tries with corrections */
+  attempt?: number;
+  correction?: string | null;
+}
+
+/** One difference a fidelity review found (review.rs). */
+export interface Finding {
+  /** added, resized, missing or pattern */
+  kind: string;
+  what: string;
+  detail: string;
+  severity: string;
+}
+
+export interface FidelityReview {
+  cli: string;
+  ok: boolean;
+  pass: boolean;
+  failing: Finding[];
+  notes: Finding[];
+  summary: string;
+  failure: Failure | null;
+}
+
+/** Fidelity of a picture to its capture (fidelity.rs). */
+export interface FidelityReport {
+  metrics: { profile: number; foreignBlobs: number; foreign: number; outsideParts: number; outside: number; missing: number };
+  report: CheckReport;
+  suspect: boolean;
+  captureColor: [number, number];
+  generatedColor: [number, number];
+  map: string | null;
 }
 
 export interface RunItem {
@@ -343,6 +379,8 @@ export interface RunReport {
 /** What the screen sends to start a run (src-tauri run_start). */
 export interface RunArgs {
   id: string;
+  /** strict (keep the capture, add nothing) or stylized */
+  fidelity?: string;
   items: { asset: string; kind?: string; capture?: string }[];
   note: string;
   cli: string;

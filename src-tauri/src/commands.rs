@@ -546,6 +546,9 @@ pub struct RunArgs {
     no_refs: bool,
     /// Export passing items here as they finish
     export_dir: Option<String>,
+    /// `strict` or `stylized` (None: the pack's, else the settings')
+    #[serde(default)]
+    fidelity: Option<String>,
 }
 
 /// Clears the stop flag when the run ends, however it ends.
@@ -600,6 +603,7 @@ pub async fn run_start(args: RunArgs, on_event: tauri::ipc::Channel<RunEvent>) -
             note: args.note,
             rewriter: args.cli,
             candidates: args.candidates,
+            fidelity: args.fidelity,
             post: Value::Object(post),
             outline_off_ok: args.outline_off_ok,
             no_refs: args.no_refs,

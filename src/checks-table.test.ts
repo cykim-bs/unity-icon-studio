@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import ko from "./i18n/ko.json";
 import en from "./i18n/en.json";
 import checksRs from "../crates/uis-core/src/checks.rs?raw";
+import fidelityRs from "../crates/uis-core/src/fidelity.rs?raw";
 import { CHECK_GROUPS, rangeText, renderChecks, valueText } from "./components/checks-table";
 import { exportErrorText } from "./screens/details";
 import { setLang } from "./i18n";
@@ -17,12 +18,20 @@ describe("checks table", () => {
     const ids = [...new Set([...checksRs.matchAll(/item\("(\w+)", "(\w+)"/g)].map((m) => m[1]))];
     const groups = [...new Set([...checksRs.matchAll(/item\("\w+", "(\w+)"/g)].map((m) => m[1]))];
     expect(ids.length).toBeGreaterThan(15);
-    expect([...CHECK_GROUPS].sort()).toEqual(groups.sort());
-    for (const id of ids) {
+    expect([...CHECK_GROUPS].sort()).toEqual([...groups, "fidelity"].sort());
+    const fid = [...new Set([...fidelityRs.matchAll(/(?:item\("|id: ")(\w+)"/g)].map((m) => m[1]))];
+    expect(fid.sort()).toEqual(["deltaSaturation", "deltaValue", "fidelityProfile", "foreignBlobs", "outsideParts"]);
+    for (const id of [...ids, ...fid]) {
       expect(ko).toHaveProperty(`checks.item.${id}`);
       expect(en).toHaveProperty(`checks.item.${id}`);
     }
     for (const g of CHECK_GROUPS) expect(en).toHaveProperty(`checks.group.${g}`);
+    // Review findings (review.rs kinds) and fidelity choices
+    for (const k of ["added", "resized", "missing", "pattern"]) {
+      expect(ko).toHaveProperty(`review.kind.${k}`);
+      expect(en).toHaveProperty(`review.kind.${k}`);
+    }
+    for (const f of ["strict", "stylized"]) expect(ko).toHaveProperty(`make.fidelity.${f}.hint`);
   });
 
   it("shows values, ranges and failures", () => {

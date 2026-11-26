@@ -46,6 +46,7 @@ const gen = (extra: Partial<GenView> = {}): GenView => ({
   candidates: 1,
   outline: "code",
   background: "auto",
+  fidelity: "strict",
   result: null,
   exportName: "",
   exportSizes: [256],
@@ -161,5 +162,61 @@ describe("right column", () => {
     renderDetails(box2, view({ gen: gen({ result }), exportDir: "C:\\Icons" }), hooks());
     expect(box2.querySelector<HTMLButtonElement>("#export-btn")!.disabled).toBe(false);
     expect(box2.querySelector<HTMLInputElement>("#export-name")!.placeholder).toBe("icon_Crate");
+  });
+
+  it("shows the fidelity checks, the review findings and the choices when a strict picture fails", () => {
+    setLang("en");
+    const box = document.createElement("div");
+    const item = (id: string, pass: boolean) => ({ id, group: "fidelity", value: pass ? 0.004 : 0.02, min: null, max: 0.012, pass });
+    const post = {
+      ok: true,
+      jobDir: "j",
+      candidate: 2,
+      kind: "building",
+      master: "m",
+      raw: "r",
+      options: { outline: "code", background: "auto" },
+      post: { alphaSource: "native", removedParts: 0, layout: { strokePx: 4 } },
+      generated: { report: { pass: true, failed: [], outlineOnly: false, items: [], metrics: { outlinePx: 0, outlineColor: "" } }, iou: 0.95, modelOutline: false, nativeAlpha: true },
+      sizes: [{ size: 256, path: "x", checks: { pass: true, failed: [], outlineOnly: false, items: [], metrics: { outlinePx: 3.6, outlineColor: "#753719" } } }],
+      fidelityMode: "strict",
+      fidelity: {
+        metrics: { profile: 0.02, foreignBlobs: 3, foreign: 0.02, outsideParts: 1, outside: 0.01, missing: 0 },
+        report: { pass: false, failed: ["fidelityProfile"], outlineOnly: false, items: [item("fidelityProfile", false)], metrics: { outlinePx: 0, outlineColor: "" } },
+        suspect: true,
+        captureColor: [0.4, 0.8] as [number, number],
+        generatedColor: [0.45, 0.85] as [number, number],
+        map: "map.png",
+      },
+      reviews: [
+        { cli: "codex", ok: true, pass: false, failing: [{ kind: "added", what: "Two yellow sparkles", detail: "above the roof", severity: "major" }], notes: [{ kind: "pattern", what: "roof grid simpler", detail: "", severity: "minor" }], summary: "", failure: null },
+        { cli: "claude", ok: false, pass: false, failing: [], notes: [], summary: "", failure: { kind: "timeout", cli: "claude", message: "", exitCode: null } },
+      ],
+      pass: false,
+      elapsedMs: 1,
+    };
+    const result = {
+      job: "j", name: "House", kind: "building",
+      cands: [{ cand: 2, post, failure: null, passed: 12, checked: 13, attempt: 2, correction: "Corrections from the previous try: do not add sparkles." }],
+      best: 2, cand: 2, icons: { 2: "data:," }, raws: {}, maps: { 2: "data:map" }, showRaw: false, exported: null, outlineKept: false,
+    };
+    const h = hooks();
+    renderDetails(box, view({ gen: gen({ result }) }), h);
+    const text = box.textContent ?? "";
+    expect(text).toContain("Keeps the original");
+    expect(text).toContain("Proportion difference");
+    expect(text).toContain("retry 1");
+    expect(text).toContain("Codex review: 1 difference(s)");
+    expect(text).toContain("Added: Two yellow sparkles (above the roof)");
+    expect(text).toContain("Pattern changed: roof grid simpler");
+    expect(text).toContain("No answer from the Claude review (timeout)");
+    expect(box.querySelector(".fidelity-map img")!.getAttribute("src")).toBe("data:map");
+    const buttons = [...box.querySelectorAll<HTMLButtonElement>(".fidelity-box button")];
+    buttons.find((b) => b.textContent === "Make it stylized")!.click();
+    expect(h.fidelityChoice).toHaveBeenCalledWith("stylized");
+    buttons.find((b) => b.textContent === "Change the note and retry")!.click();
+    expect(h.fidelityChoice).toHaveBeenCalledWith("note");
+    // The fidelity choice is offered before making
+    expect(box.querySelector<HTMLSelectElement>("#make-fidelity")!.value).toBe("strict");
   });
 });
