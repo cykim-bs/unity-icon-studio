@@ -475,7 +475,9 @@ function fidelityBlock(c: CandView, r: ResultView, hooks: DetailsHooks): HTMLEle
     d.append(img, el("p", "muted", t("fidelity.mapLegend")));
     box.append(d);
   }
-  if (!p.pass) {
+  const reviewFailed = (p.reviews ?? []).some((x) => x.ok && !x.pass);
+  const unreviewed = !!p.fidelity?.suspect && !(p.reviews ?? []).some((x) => x.ok);
+  if (!p.pass && (p.fidelity?.report.pass === false || reviewFailed || unreviewed)) {
     const row = el("div", "body-actions");
     row.append(
       button(t("fidelity.toStylized"), () => hooks.fidelityChoice("stylized"), "act-btn"),

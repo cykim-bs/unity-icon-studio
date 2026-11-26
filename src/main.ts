@@ -1214,8 +1214,15 @@ async function usePack(id: string) {
 // ---------------------------------------------------------------- readiness, recovery
 
 /** Readiness of the CLIs; a banner when Codex is missing or has to be copied out of the desktop app. */
+/** Each check gets a number; an answer that comes back after a newer check started is dropped
+ * (a slow check of an old Codex path must not bring its banner back). */
+let readySeq = 0;
+
 async function checkReady(refresh: boolean) {
-  ready = await readiness(refresh).catch(() => null);
+  const seq = ++readySeq;
+  const got = await readiness(refresh).catch(() => null);
+  if (seq !== readySeq) return;
+  ready = got;
   imagesToday = (await call<number>("images_today").catch(() => 0)) ?? 0;
   renderBody();
   renderStatus();
