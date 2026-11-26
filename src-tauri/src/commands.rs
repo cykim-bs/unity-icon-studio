@@ -59,8 +59,18 @@ pub fn settings_reset(keys: Vec<String>) -> Result<Settings, String> {
 
 /// True when `path` is inside `root` (both made absolute; case-insensitive on Windows).
 fn is_inside(path: &Path, root: &Path) -> bool {
+    // `..` is refused outright: a path that does not exist cannot be resolved on disk, and its
+    // text could start with the root and still point elsewhere
+    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return false;
+    }
     let norm = |p: &Path| -> String {
-        let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+        // The path itself when it exists, else its parent folder (which must exist) and its name,
+        // so links and short names are resolved like the root's
+        let abs = std::fs::canonicalize(p).unwrap_or_else(|_| match (p.parent().and_then(|d| std::fs::canonicalize(d).ok()), p.file_name()) {
+            (Some(dir), Some(name)) => dir.join(name),
+            _ => p.to_path_buf(),
+        });
         let text = abs.to_string_lossy().replace('/', "\\");
         let text = text.trim_start_matches(r"\\?\").trim_end_matches('\\').to_string();
         if cfg!(windows) {
@@ -114,6 +124,21 @@ mod tests {
         assert!(is_inside(Path::new("c:/FAKE/A/B"), Path::new("C:/fake/a/b/")));
         assert!(!is_inside(Path::new("C:/fake/a/bc/d"), Path::new("C:/fake/a/b")));
         assert!(!is_inside(Path::new("C:/fake/other"), Path::new("C:/fake/a")));
+    }
+
+    #[test]
+    fn inside_refuses_parent_steps_even_for_missing_files() {
+        let root = std::env::temp_dir().join(format!("uis-inside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("home/work")).unwrap();
+        std::fs::create_dir_all(root.join("secret")).unwrap();
+        let home = root.join("home");
+        // a missing file whose text starts with the root but steps out of it
+        assert!(!is_inside(&home.join("work").join("..").join("..").join("secret").join("x.png"), &home));
+        assert!(!is_inside(&home.join("..").join("secret"), &home));
+        // a missing file in a real folder inside is still inside
+        assert!(is_inside(&home.join("work").join("not-yet.png"), &home));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }
 
