@@ -10,7 +10,9 @@
 #   5. rewrite on both paths (Claude, then Codex) with the same note and model answer
 #   6. review on both paths with the same capture and candidate
 #   7. Claude missing: the rewrite falls back to Codex
-# Steps 5 and 6 print a table of the two paths; a path that did not run is a failure.
+#   8. keep the original (strict): a picture with an added sparkle fails the fidelity review and
+#      one more try with the correction fixes it, on both review paths (Claude, then Codex)
+# Steps 5, 6 and 8 print a table of the two paths; a path that did not run is a failure.
 # Exit code 0 when every check passed.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\e2e-stub.ps1 [-Keep] [-BedOnly] [-Bed <folder>]
@@ -79,7 +81,10 @@ function New-Bed([string]$root) {
     return @{ Root = $root; Game = $game; Bin = $bin; Home = $home2; CodexHome = (Join-Path $root 'codex-home'); Out = (Join-Path $root 'out') }
 }
 
+# Pictures are the capture keyed out of its white (a faithful "repaint" for the strict default),
+# unless the scenario names another picture
 function Set-Scenario($root, [string]$text) {
+    if (-not $text.Contains('codex_image=')) { $text = "codex_image=copy`n" + $text }
     Write-Utf8 (Join-Path $root 'bin\stub-scenario.txt') $text
     $log = Join-Path $root 'bin\calls.log'
     if (Test-Path $log) { Remove-Item -Force $log }
@@ -174,7 +179,12 @@ Check ($rep.capture.mode -eq 'batch' -and $rep.capture.ok) 'one batch capture fo
 Check (@($rep.items | Where-Object { $_.state -eq 'ok' }).Count -eq 2) 'both items made'
 Check (@($rep.items | Where-Object { $_.rewrite.cli }).Count -eq 2) 'the note was rewritten for each item'
 Check ((Get-Calls $b 'claude') -eq 2) 'two rewrite calls (claude)'
-Check ((Get-Calls $b 'codex') -eq 2) 'two picture calls (codex)'
+$pictures = 0
+$log = Join-Path $b.Bin 'calls.log'
+if (Test-Path $log) { $pictures = @(Get-Content $log | Where-Object { $_ -like "codex`timage`t*" }).Count }
+Check ($pictures -eq 2) 'two picture calls (codex)'
+Check ((Get-Calls $b 'codex') -eq 4) 'and two fidelity reviews (codex, the default reviewer)'
+Check (@($rep.items | Where-Object { @($_.candidates).Count -eq 1 }).Count -eq 2) 'faithful pictures: no retry'
 foreach ($it in $rep.items) {
     $post = $it.candidates[0].post
     Check ($null -ne $post -and @($post.sizes).Count -eq 2) ('finished 256 and 512: ' + $it.name)
@@ -298,12 +308,49 @@ Check ((Get-Calls $b 'claude') -eq $beforeClaude -and (Get-Calls $b 'codex') -eq
 Set-BedSetting $b 'claude.path' (Join-Path $b.Bin 'claude.exe')
 
 Say ''
+Say '8. keep the original: fidelity review on both paths, then one retry with the correction'
+$fidRows = @()
+foreach ($cli in 'claude', 'codex') {
+    Set-Scenario $b.Root "codex_image=copy_sparkle_once`nfidelity=added_once`n"
+    foreach ($f in 'codex-images.count', 'claude-fidelity.count', 'codex-fidelity.count') {
+        $p = Join-Path $b.Bin $f
+        if (Test-Path $p) { Remove-Item -Force $p }
+    }
+    $r = Invoke-Uis $b @('run', '--project', $b.Game, '--prefab', 'Assets/Buildings/House.prefab', '--capture', $cap, '--kind', 'building', '--fidelity', 'strict', '--review', $cli, '--retries', '1', '--json') ('fidelity-' + $cli)
+    $it = $null
+    if ($null -ne $r.Json) { $it = $r.Json.items[0] }
+    $row = [pscustomobject]@{ path = $cli; cands = 0; firstReview = '-'; added = '-'; retryReview = '-'; best = '-'; correction = $false; reviewCalls = (Get-Calls $b $cli); pass = $false }
+    if ($null -ne $it) {
+        $c = @($it.candidates)
+        $row.cands = $c.Count
+        if ($c.Count -ge 1 -and $null -ne $c[0].post) {
+            $rv = @($c[0].post.reviews)[0]
+            if ($rv.pass) { $row.firstReview = 'pass' } else { $row.firstReview = 'fail' }
+            $row.added = @($rv.failing | Where-Object { $_.kind -eq 'added' }).Count
+        }
+        if ($c.Count -ge 2 -and $null -ne $c[1].post) {
+            $rv2 = @($c[1].post.reviews)[0]
+            if ($rv2.pass) { $row.retryReview = 'pass' } else { $row.retryReview = 'fail' }
+            $row.correction = ([string]$c[1].correction).StartsWith('Corrections from the previous try: do not add')
+        }
+        $row.best = $it.best
+        $row.pass = ($row.cands -eq 2 -and $row.firstReview -eq 'fail' -and $row.retryReview -eq 'pass' -and $row.best -eq 2 -and $row.correction -and @($c[0].post.reviews)[0].cli -eq $cli)
+    }
+    $fidRows += $row
+    Check ($row.pass) ('strict on the ' + $cli + ' path: sparkle found, retry with the correction passes')
+}
+Set-Scenario $b.Root ''
+Check ($fidRows.Count -eq 2) 'both review paths ran'
+
+Say ''
 Say 'two paths, side by side'
 Say '  rewrite (same note, same model answer)'
 ($rows + @($fb)) | Format-Table path, cli, fallback, calls, replaced, added, rejected, lockedOk, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
 Say '  review (same capture and candidate)'
 $reviewRows | Format-Table path, cli, calls, verdict, issues, ms, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
-$table = @{ rewrite = @($rows + @($fb)); review = $reviewRows } | ConvertTo-Json -Depth 5
+Say '  fidelity review and retry (same capture, a sparkle on the first picture)'
+$fidRows | Format-Table path, cands, firstReview, added, retryReview, best, correction, reviewCalls, pass -AutoSize | Out-String -Width 200 | ForEach-Object { Write-Host $_.TrimEnd() }
+$table = @{ rewrite = @($rows + @($fb)); review = $reviewRows; fidelity = $fidRows } | ConvertTo-Json -Depth 5
 Write-Utf8 (Join-Path $b.Root 'two-paths.json') $table
 Say ''
 if ($script:failures -eq 0) { Say 'e2e-stub: all checks passed' } else { Say ('e2e-stub: ' + $script:failures + ' check(s) failed') }

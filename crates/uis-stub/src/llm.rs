@@ -254,7 +254,8 @@ pub fn codex(args: &[String]) -> i32 {
             } else {
                 default_edits()
             };
-            let answer = reply(n, default).to_string();
+            // Fidelity reviews answer from the scenario (reply files are for rewrites)
+            let answer = if schema.contains("changedPattern") { default } else { reply(n, default) }.to_string();
             msg(&answer);
             write_last(&answer);
             line(json!({ "type": "turn.completed" }));
@@ -315,7 +316,7 @@ pub fn claude(args: &[String]) -> i32 {
             } else {
                 default_edits()
             };
-            let answer = reply(n, default);
+            let answer = if schema.contains("changedPattern") { default } else { reply(n, default) };
             result(false, "completed", &answer.to_string(), Some(answer));
             0
         }
