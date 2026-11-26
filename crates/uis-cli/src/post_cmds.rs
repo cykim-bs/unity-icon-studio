@@ -226,10 +226,12 @@ pub fn export_cmd(args: &Args) -> i32 {
     let job = PathBuf::from(job);
     let cand: u32 = args.value("--cand").and_then(|v| v.parse().ok()).unwrap_or(1);
     let dir = job.join("post").join(format!("cand-{cand:02}"));
-    let sizes: Vec<u32> = args
-        .value("--sizes")
-        .map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect())
-        .unwrap_or_else(|| s.export_sizes.clone());
+    let asked: Vec<u32> = args.value("--sizes").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect()).unwrap_or_default();
+    let mut s2 = s.clone();
+    if args.has("--no-original") {
+        s2.export_original = false;
+    }
+    let sizes = uis_core::export::sizes_with_original(&asked, &s2);
     let mut icons = Vec::new();
     for size in sizes {
         let f = if size == 1024 { dir.join("master-1024.png") } else { dir.join(format!("icon-{size}.png")) };

@@ -540,7 +540,7 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
                 emit("export", "start", Some(&asset), index, String::new());
                 let dir = PathBuf::from(&g.job_dir);
                 let post_dir = dir.join("post").join(format!("cand-{b:02}"));
-                let sizes = req.export_sizes.clone().unwrap_or_else(|| settings.export_sizes.clone());
+                let sizes = export::sizes_with_original(&req.export_sizes.clone().unwrap_or_default(), settings);
                 let icons: Vec<(u32, PathBuf)> = sizes
                     .iter()
                     .map(|s| (*s, if *s == 1024 { post_dir.join("master-1024.png") } else { post_dir.join(format!("icon-{s}.png")) }))

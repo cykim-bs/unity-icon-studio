@@ -24,6 +24,18 @@ pub struct ExportReport {
     pub error: Option<String>,
 }
 
+/// The sizes to write: `sizes` (the settings' when empty), plus the 1024 picture when the
+/// settings say so (`exportOriginal`), each once, smallest first.
+pub fn sizes_with_original(sizes: &[u32], settings: &Settings) -> Vec<u32> {
+    let mut out: Vec<u32> = if sizes.is_empty() { settings.export_sizes.clone() } else { sizes.to_vec() };
+    if settings.export_original {
+        out.push(1024);
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 /// `.` and `..` resolved without touching the disk (the folder may not exist yet).
 fn lexical(path: &Path) -> PathBuf {
     let abs = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
@@ -149,6 +161,17 @@ mod tests {
         assert!(!r.ok && r.files.is_empty());
         assert!(!proj.join("Assets/icon_crate.png").exists());
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_1024_picture_goes_along_when_the_settings_say_so() {
+        let mut s = Settings::default();
+        assert!(s.export_original, "on by default");
+        assert_eq!(sizes_with_original(&[], &s), [256, 1024]);
+        assert_eq!(sizes_with_original(&[512, 256], &s), [256, 512, 1024]);
+        assert_eq!(sizes_with_original(&[256, 1024], &s), [256, 1024]);
+        s.export_original = false;
+        assert_eq!(sizes_with_original(&[], &s), [256]);
     }
 
     #[test]

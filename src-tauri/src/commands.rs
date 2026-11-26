@@ -525,7 +525,8 @@ pub async fn export(
         let dir = job_folder(&home, &s, &job)?;
         let folder = folder.filter(|f| !f.trim().is_empty()).or_else(|| s.export_dir.clone()).ok_or("noExportDir")?;
         let post = dir.join("post").join(format!("cand-{:02}", cand.max(1)));
-        let sizes = if sizes.is_empty() { s.export_sizes.clone() } else { sizes };
+        // The 1024 picture goes along when the settings say so (like the command line)
+        let sizes = uis_core::export::sizes_with_original(&sizes, &s);
         let mut icons = Vec::new();
         for size in sizes {
             let f = if size == 1024 { post.join("master-1024.png") } else { post.join(format!("icon-{size}.png")) };

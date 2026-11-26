@@ -125,7 +125,7 @@ fn two_items_from_capture_to_export() {
         assert!(it.rewrite.as_ref().unwrap().cli.is_some(), "the note was rewritten");
         let x = it.export.as_ref().expect("exported");
         assert!(x.ok, "{:?}", x.error);
-        assert_eq!(x.files.len(), 2, "256 and 512");
+        assert_eq!(x.files.len(), 3, "256 and 512, and the 1024 original");
         for f in &x.files {
             assert!(Path::new(&f.path).is_file());
         }

@@ -193,12 +193,13 @@ foreach ($it in $rep.items) {
     $post = $it.candidates[0].post
     Check ($null -ne $post -and @($post.sizes).Count -eq 2) ('finished 256 and 512: ' + $it.name)
     Check ($null -ne $post.sizes[0].checks.items -and @($post.sizes[0].checks.items).Count -ge 10) ('checks ran: ' + $it.name)
-    Check ($it.export.ok -and @($it.export.files).Count -eq 2) ('exported: ' + $it.name)
+    Check ($it.export.ok -and @($it.export.files).Count -eq 3) ('exported 256, 512 and the 1024 original: ' + $it.name)
     $job = Get-Content -Raw (Join-Path $it.jobDir 'job.json') | ConvertFrom-Json
     Check ($job.asset -eq $it.asset -and $job.runId -eq $rep.runId) ('job.json records the run: ' + $it.name)
 }
 Check (Test-Path (Join-Path $b.Out 'icon_Crate.png')) 'out\icon_Crate.png'
 Check (Test-Path (Join-Path $b.Out 'icon_House_512.png')) 'out\icon_House_512.png'
+Check (Test-Path (Join-Path $b.Out 'icon_House_1024.png')) 'out\icon_House_1024.png (the original)'
 Check (-not (Test-Path (Join-Path $b.Game 'Assets\__UnityIconStudioCapture'))) 'no capture entry left in the project'
 $dirty = & git -C $b.Game -c core.autocrlf=false status --porcelain
 Check ([string]::IsNullOrWhiteSpace(($dirty -join ''))) 'project git status clean after the run'

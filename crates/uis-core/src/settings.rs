@@ -38,6 +38,8 @@ pub struct Settings {
     pub export_dir: Option<String>,
     pub export_name: String,
     pub export_sizes: Vec<u32>,
+    /// Export the 1024 picture too (named like the other sizes, `_1024`)
+    pub export_original: bool,
     pub projects: Vec<ProjectEntry>,
     pub capture: Capture,
     pub codex: Codex,
@@ -154,6 +156,7 @@ impl Default for Settings {
             export_dir: None,
             export_name: "icon_{prefab}".into(),
             export_sizes: vec![256],
+            export_original: true,
             projects: Vec::new(),
             capture: Capture::default(),
             codex: Codex::default(),
