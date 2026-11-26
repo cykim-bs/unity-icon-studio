@@ -27,7 +27,7 @@ the line icons in `index.html` and `icons.ts` are plain SVG paths.
 |---|---|---|
 | `titlebar.ts` | `src/titlebar.ts` | Caption labels from i18n, `relabel()` for a language change, no-op in the browser preview, `select` also skips dragging |
 | `resize.ts`, `resize.test.ts` | `src/resize.ts`, `src/resize.test.ts` | Sizes the details column on the right (the handle is on its left edge, so moving left widens it) instead of the table of contents; default 420, minimum 300, at most 60% of the room; `aria-valuemin`/`aria-valuemax`; window resize keeps the cap |
-| `context-menu.ts` | `src/context-menu.ts` | Separators, disabled and danger items, checkbox items (`menuitemcheckbox`, `aria-checked`), shortcut labels, open at a point or under/above a button, Home/End |
+| `context-menu.ts` | `src/context-menu.ts` | Separators, disabled and danger items, checkbox items (`menuitemcheckbox`, `aria-checked`), shortcut labels, open at a point or under/above a button, Home/End, an optional `data-id` per item |
 | `dialog.ts` | `src/dialog.ts` | Default button label from i18n, `isDialogOpen()` |
 | `prefs.ts`, `prefs.test.ts` | `src/prefs.ts`, `src/prefs.test.ts` | Prefix `unity-slot-widget.`; the old-prefix migration is left out; tests rewritten for this prefix |
 | `nav.ts` | `src/nav.ts` | Recent files, the file opener and the dialogs are left out; tab badges with a level; ←/→/Home/End between tabs; an outside press closes the panel when it opens over the list |

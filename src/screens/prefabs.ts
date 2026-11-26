@@ -1,7 +1,7 @@
 /**
  * Middle column: the tools row (find, class chips, kind chips, folder picker, count) and the grid
- * of prefab cells. A cell shows a kind or class icon (no thumbnails yet), the name on up to two
- * lines and a kind badge; its tooltip has the path. Selection: a press picks one, Ctrl+press
+ * of prefab cells. A cell shows its 128 px thumbnail when an earlier capture left one (else a kind
+ * or class icon), the name on up to two lines and a kind badge; its tooltip has the path. Selection: a press picks one, Ctrl+press
  * toggles, Shift+press takes a range; arrows, Home and End move; Enter opens the details.
  */
 
@@ -17,6 +17,8 @@ export interface GridView {
   filter: PrefabFilter;
   selected: ReadonlySet<string>;
   focus: string | null;
+  /** Thumbnails of earlier captures by guid (data: URLs) */
+  thumbs?: Record<string, string>;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
@@ -70,7 +72,15 @@ export function renderGrid(inner: HTMLElement, view: GridView): void {
     if (key === view.focus) cell.classList.add("focus");
     cell.title = item.path;
     const well = el("div", "prefab-well");
-    well.append(itemIcon(item.class, item.kind));
+    const thumb = item.guid ? view.thumbs?.[item.guid] : undefined;
+    if (thumb) {
+      const img = el("img", "prefab-thumb");
+      img.src = thumb;
+      img.alt = "";
+      img.draggable = false;
+      img.loading = "lazy";
+      well.append(img);
+    } else well.append(itemIcon(item.class, item.kind));
     const name = el("div", "prefab-name", item.name);
     const badge = el("span", `prefab-badge cls-${item.class}`, item.class === "3d" || item.class === "model" ? t(`kind.${item.kind}`) : t(`class.${item.class === "empty" || item.class === "unknown" ? "other" : item.class}`));
     cell.append(well, name, badge);

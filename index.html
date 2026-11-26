@@ -82,6 +82,7 @@
           </button>
           <span id="list-count" class="muted"></span>
           <span class="spacer"></span>
+          <button id="thumbs-btn" class="act-btn small" type="button" data-t="thumbs.make" data-t-title="thumbs.title"></button>
           <button id="list-more" class="icon-btn" type="button" aria-haspopup="menu" data-t-title="prefabs.more" data-t-aria="prefabs.more">
             <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3.5" cy="8" r="1.15" fill="currentColor" stroke="none" /><circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none" /><circle cx="12.5" cy="8" r="1.15" fill="currentColor" stroke="none" /></svg>
           </button>
@@ -138,7 +139,8 @@
 
       <!-- Settings (src/shell/settings-dialog.ts): tabs and items come from src/settings.ts -->
       <dialog id="settings-dialog" class="modal" aria-labelledby="settings-title">
-        <form method="dialog">
+        <!-- novalidate: every item is fitted when it is stored; a field the browser finds invalid must not keep the popup from closing -->
+        <form method="dialog" novalidate>
           <header class="modal-head">
             <h2 id="settings-title" data-t="settings.title"></h2>
             <button class="icon-btn small" type="submit" value="close" data-t-title="settings.close" data-t-aria="settings.close">

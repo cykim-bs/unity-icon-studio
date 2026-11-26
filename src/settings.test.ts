@@ -7,8 +7,10 @@ import {
   patchSettings,
   readSettings,
   receiveSettings,
+  onSettingsChange,
   setSettingsSaver,
   SETTINGS,
+  whenSaved,
   SETTING_KEYS,
   type SettingDef,
 } from "./settings";
@@ -35,6 +37,8 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
     expect(options("capture.mode")).toEqual(rustList("CAPTURE_MODES"));
     expect(options("llm.rewriter")).toEqual(rustList("REWRITERS"));
     expect(options("claude.effort")).toEqual(rustList("CLAUDE_EFFORTS"));
+    expect(options("generate.outline")).toEqual(rustList("OUTLINES"));
+    expect(options("generate.background")).toEqual(rustList("BACKGROUNDS"));
   });
 
   it("has the same ranges and defaults", () => {
@@ -52,6 +56,21 @@ describe("settings schema matches crates/uis-core/src/settings.rs", () => {
     expect(rust).toContain(`trim_context: ${SETTINGS["codex.trimContext"].default},`);
     expect(rust).toContain(`clean_generated_images: ${SETTINGS["codex.cleanGeneratedImages"].default},`);
     expect(rust).toContain(`model: "${SETTINGS["claude.model"].default}".into()`);
+    for (const [key, field] of [["generate.candidates", "candidates"], ["thumbnails.maxPerRun", "max_per_run"]] as const) {
+      const d = SETTINGS[key];
+      expect([d.min, d.max]).toEqual(rustRange(field));
+      expect(rust).toMatch(new RegExp(`\\b${field}: ${d.default}\\b`));
+    }
+    expect(rust).toContain(`style_refs: ${SETTINGS["generate.styleRefs"].default},`);
+  });
+});
+
+describe("number items", () => {
+  it("have a default on their step grid (an off-grid value blocks the popup's form)", () => {
+    for (const def of Object.values(SETTINGS) as SettingDef[]) {
+      if (def.kind !== "number") continue;
+      expect((def.default - def.min) % def.step, def.label).toBe(0);
+    }
   });
 });
 
@@ -90,5 +109,21 @@ describe("saving", () => {
     await patchSettings({ workDir: "" });
     expect(sent).toEqual([{ theme: "light" }, { workDir: "C:\\fake\\work" }, { workDir: "" }]);
     expect(getSetting("theme")).toBe("light");
+  });
+
+  it("listeners hear a change at once; whenSaved waits for the file", async () => {
+    let written = false;
+    setSettingsSaver(async () => {
+      await new Promise((r) => setTimeout(r, 20));
+      written = true;
+      return null;
+    });
+    receiveSettings(defaultSettings());
+    const heard: boolean[] = [];
+    onSettingsChange(() => heard.push(written));
+    void patchSettings({ "codex.path": "C:\fake\codex.exe" });
+    expect(heard).toEqual([false]);
+    await whenSaved();
+    expect(written).toBe(true);
   });
 });

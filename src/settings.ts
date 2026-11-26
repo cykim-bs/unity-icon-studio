@@ -146,6 +146,32 @@ export const SETTINGS = {
       { value: "high", label: "effort.high" },
     ],
   },
+  "generate.candidates": { kind: "number", section: "generate", label: "settings.candidates", hint: "settings.candidates.hint", default: 1, min: 1, max: 4, step: 1 },
+  "generate.outline": {
+    kind: "select",
+    section: "generate",
+    label: "settings.outline",
+    hint: "settings.outline.hint",
+    default: "code",
+    options: [
+      { value: "code", label: "result.outline.code" },
+      { value: "model", label: "result.outline.model" },
+      { value: "none", label: "result.outline.none" },
+    ],
+  },
+  "generate.background": {
+    kind: "select",
+    section: "generate",
+    label: "settings.background",
+    hint: "settings.background.hint",
+    default: "transparent",
+    options: [
+      { value: "transparent", label: "settings.background.transparent" },
+      { value: "flat", label: "settings.background.flat" },
+    ],
+  },
+  "generate.styleRefs": { kind: "toggle", section: "generate", label: "settings.styleRefs", hint: "settings.styleRefs.hint", default: true },
+  "thumbnails.maxPerRun": { kind: "number", section: "capture", label: "settings.thumbsMax", default: 200, min: 1, max: 2000, step: 1, unit: "unit.items" },
   "codex.path": { kind: "text", section: "generate", label: "settings.codexPath", hint: "settings.codexPath.hint", default: "", placeholder: "settings.codexPath.placeholder" },
   "codex.ignoreUserConfig": { kind: "toggle", section: "generate", label: "settings.ignoreUserConfig", hint: "settings.ignoreUserConfig.hint", default: true },
   "codex.trimContext": { kind: "toggle", section: "generate", label: "settings.trimContext", hint: "settings.trimContext.hint", default: true },
@@ -319,6 +345,11 @@ export function patchSettings(patch: Partial<Record<SettingKey, unknown>>): Prom
   };
   queue = queue.then(run);
   return queue;
+}
+
+/** Settles once every save asked for so far has been written (listeners run before that). */
+export function whenSaved(): Promise<void> {
+  return queue.catch(() => {});
 }
 
 export function setSetting<K extends SettingKey>(key: K, raw: unknown): Promise<void> {

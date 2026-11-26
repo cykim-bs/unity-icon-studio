@@ -5,10 +5,11 @@
  * can be checked without Tauri. Nothing is read from or written to disk.
  *
  * Preview query (browser only): ?sample=1 ?lang=ko|en ?theme=system|light|dark ?nav=projects|runs|packs|closed
- * ?body=hidden ?frame=<width>x<height>
+ * ?body=hidden ?frame=<width>x<height> ?thumbs (made-up grid thumbnails) ?fail=limit|rewrite|capture (a failing run)
+ * ?pick=<n> (pick the n-th prefab) ?empty (no project, for the empty state)
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { CaptureEvent, CaptureReport, CheckItem, CheckReport, CopyInfo, ExportReport, GenerateReport, PostJobReport, Readiness, RewriteReport } from "./types";
+import type { Assembled, CaptureEvent, CaptureReport, CheckItem, CheckReport, CopyInfo, ExportReport, GenerateReport, JobDetail, JobSummary, PostJobReport, Readiness, RewriteReport, RunArgs, RunEvent, RunItem, RunReport } from "./types";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const inTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
@@ -20,6 +21,8 @@ const previewTheme = query.get("theme");
 const PREVIEW_SETTINGS: Record<string, unknown> = {
   language: query.get("lang") ?? "auto",
   theme: previewTheme === "light" || previewTheme === "dark" ? previewTheme : "system",
+  exportDir: query.has("sample") ? "C:\\Exports" : null,
+  exportSizes: [256],
 };
 
 function setPath(target: Record<string, unknown>, key: string, value: unknown): void {
@@ -123,7 +126,9 @@ async function preview(cmd: string, args?: Record<string, unknown>): Promise<unk
   const sample = query.has("sample");
   switch (cmd) {
     case "project_list":
-      return sample ? [PREVIEW_PROJECT] : [];
+      return sample && !query.has("empty") ? [PREVIEW_PROJECT] : [];
+    case "project_set_pack":
+      return { ...PREVIEW_PROJECT, packId: args?.packId ?? "default" };
     case "project_probe":
       return PREVIEW_PROJECT;
     case "prefab_scan":
@@ -260,9 +265,14 @@ export function postRerun(job: string, cand: number, options: Record<string, unk
 }
 
 /** Copies the finished icons out of the job (the folder from the settings when `folder` is null). */
-export function exportIcons(job: string, cand: number, sizes: number[], name: string, folder: string | null): Promise<ExportReport> {
-  if (!inTauri) return Promise.resolve({ ok: true, folder: "(preview)", files: [{ size: 256, path: `(preview)/icon_${name}.png` }], error: null });
-  return invoke<ExportReport>("export", { job, cand, sizes, name, folder });
+export function exportIcons(job: string, cand: number, sizes: number[], name: string, folder: string | null, rule: string | null = null): Promise<ExportReport> {
+  if (!inTauri) {
+    const base = rule || `icon_${name}`;
+    const dir = folder ?? "C:\\Exports";
+    const files = (sizes.length ? sizes : [256]).map((size, i) => ({ size, path: `${dir}\\${base}${i ? `_${size}` : ""}.png` }));
+    return Promise.resolve({ ok: true, folder: dir, files, error: null });
+  }
+  return invoke<ExportReport>("export", { job, cand, sizes, name, folder, rule });
 }
 
 function previewItem(id: string, group: string, value: number, min: number | null, max: number | null): CheckItem {
@@ -270,7 +280,7 @@ function previewItem(id: string, group: string, value: number, min: number | nul
 }
 
 /** Made-up checks for the browser preview. */
-async function previewPost(options: Record<string, unknown>): Promise<PostJobReport> {
+async function previewPost(options: Record<string, unknown>, cand = 1): Promise<PostJobReport> {
   await new Promise((resolve) => setTimeout(resolve, 300));
   const stroke = options.outline === "none" ? 0 : 3.7;
   const items = [
@@ -279,7 +289,7 @@ async function previewPost(options: Record<string, unknown>): Promise<PostJobRep
     previewItem("fill", "frame", 0.51, 0.38, 0.72),
     previewItem("largestPart", "frame", 1, 0.98, null),
     ...(options.outline === "none" ? [] : [previewItem("outlineWidth", "outline", stroke, 3, 5), previewItem("outlineUniform", "outline", 0.99, 0.75, null)]),
-    previewItem("saturation", "color", 0.52, 0.35, 0.62),
+    previewItem("saturation", "color", cand === 2 ? 0.66 : 0.52, 0.35, 0.62),
     previewItem("value", "color", 0.86, 0.74, 0.96),
   ];
   const report: CheckReport = { pass: items.every((i) => i.pass), failed: items.filter((i) => !i.pass).map((i) => i.id), outlineOnly: false, items, metrics: { outlinePx: stroke, outlineColor: "#753719" } };
@@ -349,11 +359,11 @@ async function previewCapture(items: string[], onEvent: (e: CaptureEvent) => voi
 }
 
 /** Captures `items` of project `id`; steps come to `onEvent`. */
-export function captureOnly(id: string, items: string[], onEvent: (e: CaptureEvent) => void): Promise<CaptureReport> {
+export function captureOnly(id: string, items: string[], onEvent: (e: CaptureEvent) => void, purpose: "capture" | "thumb" = "capture"): Promise<CaptureReport> {
   if (!inTauri) return previewCapture(items, onEvent);
   const channel = new Channel<CaptureEvent>();
   channel.onmessage = onEvent;
-  return invoke<CaptureReport>("capture_only", { id, items, purpose: "capture", onEvent: channel });
+  return invoke<CaptureReport>("capture_only", { id, items, purpose, onEvent: channel });
 }
 
 /** A capture PNG as a data: URL (the preview draws a plain shape). */
@@ -369,4 +379,229 @@ export function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T>
 export async function on<T>(event: string, handler: (payload: T) => void): Promise<UnlistenFn> {
   if (!inTauri) return () => {};
   return listen<T>(event, (e) => handler(e.payload));
+}
+
+// ---------------------------------------------------------------- whole runs (pipeline), jobs, thumbnails
+
+/** Made-up jobs the browser preview's runs leave (newest first). */
+const previewJobs: { summary: JobSummary; detail: JobDetail }[] = [];
+let previewStop = false;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** A whole run in the browser preview: made-up steps and checks. `?fail=limit|rewrite|capture` shows a failure. */
+async function previewRun(args: RunArgs, onEvent: (e: RunEvent) => void): Promise<RunReport> {
+  previewStop = false;
+  const runId = "20260101-000000-0001";
+  const total = args.items.length;
+  const started = Date.now();
+  const fail = query.get("fail");
+  const emit = (stage: string, state: string, item: string | null, index: number, message = "") =>
+    onEvent({ runId, stage, state, item, index, total, message, elapsedMs: Date.now() - started });
+  const need = args.items.filter((i) => !i.capture);
+  if (need.length) {
+    emit("capture", "start", null, 0);
+    for (let i = 0; i < need.length; i++) {
+      await sleep(300);
+      emit("capture", "progress", null, i + 1, `unity:${i + 1}/${need.length}`);
+    }
+    emit("capture", fail === "capture" ? "fail" : "ok", null, 0);
+  } else emit("capture", "skip", null, 0);
+  const items: RunItem[] = [];
+  let halt: string | null = null;
+  for (const [n, it] of args.items.entries()) {
+    const index = n + 1;
+    const name = it.asset.split("/").pop()!.replace(/\.prefab$/, "");
+    const base: RunItem = {
+      asset: it.asset,
+      name,
+      kind: it.kind ?? "building",
+      capture: it.capture ?? `preview:${n}`,
+      jobDir: `(preview)\\jobs\\${runId}-${name}`,
+      state: "ok",
+      stage: null,
+      error: null,
+      rewrite: null,
+      candidates: [],
+      best: null,
+      pass: false,
+      outlineKept: false,
+      export: null,
+      elapsedMs: 0,
+    };
+    if (fail === "capture") {
+      items.push({ ...base, state: "failed", stage: "capture", error: "blocked:open" });
+      continue;
+    }
+    if (halt || previewStop) {
+      items.push({ ...base, state: previewStop ? "cancelled" : "stopped", error: halt });
+      continue;
+    }
+    emit("prompt", "start", it.asset, index);
+    await sleep(80);
+    emit("prompt", "ok", it.asset, index);
+    if (args.note.trim()) {
+      emit("rewrite", "start", it.asset, index);
+      await sleep(500);
+      if (fail === "rewrite") {
+        emit("rewrite", "fail", it.asset, index);
+        const rw = previewRewrite(args.note);
+        rw.ok = false;
+        rw.failure = { kind: "bad_json", cli: args.cli, message: "(preview) the answer was not JSON", exitCode: 0 };
+        rw.choices = ["otherCli", "withoutNote", "cancel"];
+        items.push({ ...base, state: "failed", stage: "rewrite", error: "rewrite:bad_json:(preview)", rewrite: rw });
+        continue;
+      }
+      emit("rewrite", "ok", it.asset, index);
+      base.rewrite = previewRewrite(args.note);
+    } else {
+      emit("rewrite", "skip", it.asset, index);
+      base.rewrite = previewRewrite("");
+    }
+    for (let c = 1; c <= Math.max(1, args.candidates); c++) {
+      emit("generate", "start", it.asset, index);
+      await sleep(1200);
+      if (previewStop) break;
+      if (fail === "limit") {
+        const failure = { kind: "limit", cli: "codex", message: "(preview) usage limit reached", exitCode: 1 };
+        emit("generate", "fail", it.asset, index, "limit");
+        base.candidates.push({ cand: c, ok: false, raw: null, failure, post: null, postError: null, passed: 0, checked: 0 });
+        halt = "limit";
+        break;
+      }
+      emit("generate", "ok", it.asset, index, String(c));
+      emit("post", "start", it.asset, index, String(c));
+      const post = await previewPost({ outline: args.outline, background: args.background }, c);
+      emit("post", "ok", it.asset, index, String(c));
+      const items2 = post.sizes[0].checks.items;
+      emit("check", post.pass ? "ok" : "fail", it.asset, index);
+      base.candidates.push({ cand: c, ok: true, raw: `preview:${10 + c}`, failure: null, post, postError: null, passed: items2.filter((i) => i.pass).length, checked: items2.length });
+    }
+    const posted = base.candidates.filter((c) => c.post);
+    const best = posted.filter((c) => c.post!.pass).sort((a, b) => b.passed - a.passed)[0] ?? posted[0];
+    base.best = best?.cand ?? null;
+    base.pass = !!best?.post?.pass;
+    if (!best) {
+      base.state = previewStop ? "cancelled" : "failed";
+      base.stage = "generate";
+      base.error = halt ? `image:${halt}` : null;
+    }
+    base.elapsedMs = Date.now() - started;
+    items.push(base);
+    if (best) {
+      const summary: JobSummary = {
+        dir: base.jobDir!,
+        at: runId.slice(0, 15),
+        name,
+        kind: base.kind,
+        packId: "default",
+        note: args.note,
+        project: PREVIEW_PROJECT.path,
+        projectName: PREVIEW_PROJECT.name,
+        asset: it.asset,
+        ok: true,
+        state: "ok",
+        pass: base.pass,
+        failedStage: null,
+        error: null,
+        candidates: base.candidates.map((c) => c.cand),
+        posted: posted.map((c) => c.cand),
+        best: base.best,
+        icon: "preview:2",
+        exported: false,
+      };
+      const detail: JobDetail = {
+        dir: base.jobDir!,
+        job: { name, kind: base.kind, note: args.note, asset: it.asset, project: PREVIEW_PROJECT.path, best: base.best },
+        posts: posted.map((c) => c.post!),
+        diff: base.rewrite?.diff ?? null,
+        capture: base.capture,
+        export: null,
+      };
+      previewJobs.unshift({ summary, detail });
+    }
+  }
+  const report: RunReport = {
+    schema: "unity-icon-studio.run/1",
+    runId,
+    project: PREVIEW_PROJECT.path,
+    ok: items.every((i) => i.state === "ok"),
+    cancelled: previewStop,
+    stopped: halt,
+    error: fail === "capture" ? "blocked:open" : null,
+    capture: need.length ? { runId, mode: "batch", reason: "closed", ok: fail !== "capture", error: fail === "capture" ? "blocked:open" : null, failed: 0, pending: false, elapsedMs: 300 * need.length } : null,
+    items,
+    elapsedMs: Date.now() - started,
+  };
+  emit("done", report.ok ? "ok" : report.cancelled ? "cancel" : "fail", null, 0);
+  return report;
+}
+
+/** A whole run: capture (items without a picture), then each item's prompt, rewrite, picture, finish and checks. */
+export function runStart(args: RunArgs, onEvent: (e: RunEvent) => void): Promise<RunReport> {
+  if (!inTauri) return previewRun(args, onEvent);
+  const channel = new Channel<RunEvent>();
+  channel.onmessage = onEvent;
+  return invoke<RunReport>("run_start", { args, onEvent: channel });
+}
+
+/** Stops the run in progress (a capture finishes its request first). */
+export function runCancel(): Promise<boolean> {
+  if (!inTauri) {
+    previewStop = true;
+    return Promise.resolve(true);
+  }
+  return invoke<boolean>("run_cancel");
+}
+
+export function jobsList(limit = 60): Promise<JobSummary[]> {
+  if (!inTauri) return Promise.resolve(previewJobs.map((j) => j.summary));
+  return invoke<JobSummary[]>("jobs_list", { limit });
+}
+
+export function jobGet(dir: string): Promise<JobDetail> {
+  if (!inTauri) {
+    const found = previewJobs.find((j) => j.detail.dir === dir);
+    return found ? Promise.resolve(found.detail) : Promise.reject("noJob");
+  }
+  return invoke<JobDetail>("job_get", { job: dir });
+}
+
+/** Thumbnails of earlier captures, by prefab guid (data: URLs). */
+export function prefabThumbs(id: string): Promise<Record<string, string>> {
+  if (!inTauri) {
+    if (!query.has("thumbs")) return Promise.resolve({});
+    const out: Record<string, string> = {};
+    for (let n = 1; n <= 12; n++) out[n.toString(16).padStart(32, "0")] = previewPicture(n);
+    return Promise.resolve(out);
+  }
+  return invoke<Record<string, string>>("prefab_thumbs", { id });
+}
+
+/** The folder picker for the export folder (null: cancelled). */
+export function exportPick(): Promise<string | null> {
+  if (!inTauri) return Promise.resolve(null);
+  return invoke<string | null>("export_pick");
+}
+
+/** The fixed prompt of a pack for a kind (no LLM). */
+export function promptPreview(packId: string, kind: string): Promise<Assembled> {
+  if (!inTauri) return Promise.resolve(previewAssembled(kind));
+  return invoke<Assembled>("prompt_preview", { packId, kind });
+}
+
+function previewAssembled(kind: string): Assembled {
+  const s = (id: string, locked: boolean, text: string) => ({ id, block: id.split(".")[0], locked, text, status: "same" as const });
+  const sentences = [
+    s("HEADER.verbatim", true, "Use this prompt exactly as written; do not rewrite it or add details."),
+    s("GOAL.edit", true, "Edit input image 1 into a single polished casual mobile-game icon. Change only the rendering style."),
+    s("STYLE.look", false, "Look: soft, rounded, toy-like shapes with clean painted surfaces."),
+    s("STYLE.color", false, "Color: bright, saturated pastel palette with a few strong accent colors."),
+    s("STYLE.outline", true, "No outline: keep a crisp, clean silhouette edge with no stroke, no sticker border and no glow."),
+    s(`SUBJECT.keep`, true, `Keep the ${kind}'s shape, parts and color layout.`),
+    s("CAMERA.view", true, "Keep the capture's viewpoint: about 30° from above, turned 28° to the right."),
+    s("AVOID.tech", true, "No background, no text, no logo, no watermark, no frame, no second scene, nothing cut off."),
+    s("OUTPUT.spec", true, "Output: one centered object on a transparent background, square canvas."),
+  ];
+  return { packId: "default", templateVersion: "2", sentences, text: sentences.map((x) => x.text).join("\n"), addable: ["STYLE", "SUBJECT", "AVOID"] };
 }

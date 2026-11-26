@@ -264,6 +264,7 @@ export interface PostJobReport {
   jobDir: string;
   candidate: number;
   kind: string;
+  raw?: string;
   master: string;
   options: Record<string, unknown> & { outline: string; background: string };
   post: { alphaSource: string; removedParts: number; layout: { strokePx: number } };
@@ -278,4 +279,119 @@ export interface ExportReport {
   folder: string;
   files: { size: number; path: string }[];
   error: string | null;
+}
+
+// ---------------------------------------------------------------- whole runs and jobs (pipeline.rs, jobs.rs)
+
+/** A step of a run (uis-core pipeline.rs RunEvent). */
+export interface RunEvent {
+  runId: string;
+  /** capture, prompt, rewrite, generate, post, check, export, done */
+  stage: string;
+  /** start, ok, fail, skip, cancel, progress */
+  state: string;
+  item: string | null;
+  index: number;
+  total: number;
+  message: string;
+  elapsedMs: number;
+}
+
+export interface RunCandidate {
+  cand: number;
+  ok: boolean;
+  raw: string | null;
+  failure: Failure | null;
+  post: PostJobReport | null;
+  postError: string | null;
+  passed: number;
+  checked: number;
+}
+
+export interface RunItem {
+  asset: string;
+  name: string;
+  kind: string;
+  capture: string | null;
+  jobDir: string | null;
+  /** ok, failed, cancelled, stopped */
+  state: string;
+  stage: string | null;
+  error: string | null;
+  rewrite: RewriteReport | null;
+  candidates: RunCandidate[];
+  best: number | null;
+  pass: boolean;
+  outlineKept: boolean;
+  export: ExportReport | null;
+  elapsedMs: number;
+}
+
+export interface RunReport {
+  schema: string;
+  runId: string;
+  project: string;
+  ok: boolean;
+  cancelled: boolean;
+  stopped: string | null;
+  error: string | null;
+  capture: { runId: string; mode: string; reason: string; ok: boolean; error: string | null; failed: number; pending: boolean; elapsedMs: number } | null;
+  items: RunItem[];
+  elapsedMs: number;
+}
+
+/** What the screen sends to start a run (src-tauri run_start). */
+export interface RunArgs {
+  id: string;
+  items: { asset: string; kind?: string; capture?: string }[];
+  note: string;
+  cli: string;
+  candidates: number;
+  outline: string;
+  background: string;
+  outlineOffOk: boolean;
+  noRefs: boolean;
+}
+
+/** A job folder in the 「Runs」 list (jobs.rs list). */
+export interface JobSummary {
+  dir: string;
+  /** YYYYMMDD-HHMMSS */
+  at: string;
+  name: string | null;
+  kind: string | null;
+  packId: string | null;
+  note: string | null;
+  project: string | null;
+  projectName: string | null;
+  asset: string | null;
+  ok: boolean | null;
+  state: string | null;
+  pass: boolean | null;
+  failedStage: string | null;
+  error: string | null;
+  candidates: number[];
+  posted: number[];
+  best: number | null;
+  icon: string | null;
+  exported: boolean;
+}
+
+/** One job folder opened again (src-tauri job_get). */
+export interface JobDetail {
+  dir: string;
+  job: Record<string, unknown>;
+  posts: PostJobReport[];
+  diff: PromptDiff | null;
+  capture: string | null;
+  export: { folder: string; files: { size: number; path: string }[]; at: string } | null;
+}
+
+/** The fixed prompt of a pack for a kind (prompt.rs Assembled). */
+export interface Assembled {
+  packId: string;
+  templateVersion: string;
+  sentences: Sentence[];
+  text: string;
+  addable: string[];
 }

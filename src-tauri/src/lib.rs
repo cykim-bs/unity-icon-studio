@@ -52,6 +52,7 @@ pub fn run() {
             commands::project_add,
             commands::project_pick,
             commands::project_remove,
+            commands::project_set_pack,
             commands::project_probe,
             commands::hub_projects,
             commands::prefab_scan,
@@ -72,6 +73,12 @@ pub fn run() {
             commands::post_rerun,
             commands::export,
             commands::jobs_list,
+            commands::run_start,
+            commands::run_cancel,
+            commands::job_get,
+            commands::prefab_thumbs,
+            commands::export_pick,
+            commands::export_check,
         ])
         .setup(|app| {
             let home = uis_core::home::Home::resolve();

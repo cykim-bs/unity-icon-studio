@@ -15,6 +15,8 @@ export interface MenuItem {
   checked?: boolean;
   /** Shortcut shown at the right, for example "F5". */
   shortcut?: string;
+  /** `data-id` of the item (scripts that drive the window find it by this) */
+  id?: string;
 }
 
 export type MenuEntry = MenuItem | "separator";
@@ -58,6 +60,7 @@ function entryElement(entry: MenuEntry): HTMLElement {
   if (entry.checked !== undefined) b.setAttribute("aria-checked", String(entry.checked));
   if (entry.danger) b.classList.add("danger");
   b.disabled = entry.disabled === true;
+  if (entry.id) b.dataset.id = entry.id;
   const text = document.createElement("span");
   text.className = "menu-label";
   text.textContent = entry.label;

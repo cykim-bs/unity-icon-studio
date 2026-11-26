@@ -4,38 +4,83 @@
  * make controls on the right, a banner for what needs a person now, and a status bar. Notices show
  * in the status bar for a moment (flashStatus) instead of toasts.
  *
- * Projects: added with the folder picker (Ctrl+O), by dropping a folder on the window, or from
- * Unity Hub's list. Picking one reads its prefabs without Unity (uis-core prefabs.rs, cached) and
- * checks how a capture would run (lock file, version, packages). The state is checked again every
- * 30 seconds while the window has the focus.
+ * Projects: added with the folder picker (Ctrl+O), by dropping a folder on the window, by typing a
+ * path, or from Unity Hub's list. Picking one reads its prefabs without Unity (uis-core
+ * prefabs.rs, cached) and checks how a capture would run (lock file, version, packages). The state
+ * is checked again every 30 seconds while the window has the focus.
  *
- * The screen state (side panel, widths, project, filters) comes back on the next start
- * (localStorage, shell/prefs). Settings live in settings.json in the tool folder (Rust side).
+ * Making icons: 「Make icon」 starts a whole run (uis-core pipeline.rs through run_start): the
+ * capture of the picked prefabs that have no picture yet (one request), then for each in turn the
+ * prompt, the rewrite of the note, the picture, the finish and the checks. The step row follows
+ * the run's events; Esc asks whether to stop it. Results land in the 「Runs」 tab too.
+ *
+ * The screen state (side panel, widths, project, filters, preview background) comes back on the
+ * next start (localStorage, shell/prefs). Settings live in settings.json in the tool folder (Rust).
  */
 
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { call, captureImage, captureOnly, copyCodex, exportIcons, generateRaw, inTauri, postRerun, promptRewrite, readiness } from "./backend";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  call,
+  captureImage,
+  captureOnly,
+  copyCodex,
+  exportIcons,
+  exportPick,
+  inTauri,
+  jobGet,
+  jobsList,
+  postRerun,
+  prefabThumbs,
+  promptPreview,
+  promptRewrite,
+  readiness,
+  runCancel,
+  runStart,
+} from "./backend";
 import { captureErrorText } from "./capture-text";
 import { applyDomTexts, currentLang, resolveLang, setLang, t } from "./i18n";
 import { applyFilter, CLASS_CHIPS, DEFAULT_FILTER, folderChoices, KIND_CHIPS, nextSelection, type ClassChip, type PrefabFilter } from "./prefab-filter";
-import { renderDetails, type CaptureView, type GenView } from "./screens/details";
-import { failureText, generateErrorText } from "./prompt-text";
+import { failureText } from "./prompt-text";
+import { applyEvent, finishRun, newRun, type RunView } from "./run-state";
+import { tickSteppers } from "./components/stepper";
+import { renderDetails, runErrorText, type CandView, type CaptureView, type GenView, type ResultView, type RetryKind } from "./screens/details";
+import { renderPacks } from "./screens/packs";
 import { gridColumns, itemKey, renderChips, renderGrid } from "./screens/prefabs";
 import { modeText, reasonText, renderProjects } from "./screens/projects";
+import { renderRuns } from "./screens/runs";
 import { aboutPanel } from "./settings-panels";
-import { getSetting, onSettingsChange, onSettingsSaveError, receiveSettings, setSetting, SETTING_KEYS, type SettingKey } from "./settings";
+import { getSetting, onSettingsChange, onSettingsSaveError, receiveSettings, setSetting, settingsDocument, SETTING_KEYS, valueAt, whenSaved, type SettingKey } from "./settings";
 import { relabelBanner, setBannerFocusHome, showBanner } from "./shell/banner";
 import { showContextMenu, showMenuBelow, type MenuEntry } from "./shell/context-menu";
+import { isDialogOpen, showChoice, showDialog, showPrompt } from "./shell/dialog";
 import { initFrame } from "./shell/frame";
 import { initKeys } from "./shell/keys";
 import { initNav } from "./shell/nav";
-import { isBoolean, readPref, writePref } from "./shell/prefs";
+import { isBoolean, isString, readPref, writePref } from "./shell/prefs";
 import { initBodyResize } from "./shell/resize";
 import { initSettingsDialog } from "./shell/settings-dialog";
 import { fitStatusbar, flashStatus, setStatusPath } from "./shell/statusbar";
 import { initTheme, isThemeChoice, oppositeChoice } from "./shell/theme";
 import { initTitlebar } from "./shell/titlebar";
-import type { AppInfo, BatchFinish, CaptureEvent, HubProject, Kind, PackSummary, PrefabItem, ProjectSummary, Readiness, RecoveryEntry, ScanResult } from "./types";
+import type {
+  AppInfo,
+  Assembled,
+  BatchFinish,
+  CaptureEvent,
+  HubProject,
+  JobDetail,
+  JobSummary,
+  Kind,
+  PackSummary,
+  PostJobReport,
+  PrefabItem,
+  ProjectSummary,
+  Readiness,
+  RecoveryEntry,
+  RunItem,
+  ScanResult,
+} from "./types";
 
 function $(id: string): HTMLElement {
   const node = document.getElementById(id);
@@ -53,6 +98,7 @@ const theme = initTheme();
 const settingsDialog = initSettingsDialog();
 
 const PROBE_MS = 30_000;
+const BGS = ["checker", "white", "black"];
 const isStringOrNull = (v: unknown): v is string | null => v === null || typeof v === "string";
 const isFilter = (v: unknown): v is PrefabFilter =>
   typeof v === "object" &&
@@ -78,29 +124,57 @@ let anchor: string | null = null;
 let focusKey: string | null = null;
 let shown: PrefabItem[] = [];
 let dropHover = false;
+let thumbs: Record<string, string> = {};
+let previewBg = readPref("previewBg", "checker", (v): v is string => isString(v) && BGS.includes(v));
 const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {} });
 /** Capture state of the open project (cleared when another project is opened). */
 let cap: CaptureView = emptyCapture();
+const settingNumber = (key: string, d: number) => {
+  const v = valueAt(settingsDocument(), key);
+  return typeof v === "number" ? v : d;
+};
+const settingText = (key: string, d: string) => {
+  const v = valueAt(settingsDocument(), key);
+  return typeof v === "string" ? v : d;
+};
+const exportSizes = (): number[] => {
+  const v = valueAt(settingsDocument(), "exportSizes");
+  return Array.isArray(v) && v.every((n) => typeof n === "number") && v.length ? (v as number[]) : [256];
+};
 const emptyGen = (cli: string): GenView => ({
   note: "",
   cli,
   busy: "",
   diff: null,
   error: null,
-  raw: null,
-  rawInfo: "",
-  job: null,
-  post: null,
-  icon: null,
-  outline: "code",
-  background: "auto",
-  exported: null,
+  errorStage: null,
+  failure: null,
+  candidates: settingNumber("generate.candidates", 1),
+  outline: settingText("generate.outline", "code"),
+  background: settingText("generate.background", "transparent") === "flat" ? "key" : "auto",
+  result: null,
+  exportName: "",
+  exportSizes: exportSizes(),
 });
-/** Note, rewrite preview and raw picture of the one picked prefab (cleared when the pick changes). */
+/** Note, rewrite preview, options and result of the picked prefab(s) (cleared when the pick changes). */
 let gen: GenView = emptyGen("claude");
 let genFor: string | null = null;
+/** The run in progress or the last one (one at a time). */
+let run: RunView | null = null;
 let ready: Readiness | null = null;
 let imagesToday = 0;
+// 「Runs」 tab
+let jobs: JobSummary[] = [];
+let jobIcons: Record<string, string> = {};
+let jobsLoading = false;
+let opened: ResultView | null = null;
+let openedDir: string | null = null;
+let newRuns = 0;
+// 「Styles」 tab
+let packShown = "default";
+let packKind = "building";
+let packPrompt: Assembled | null = null;
+let tick: number | null = null;
 
 // ---------------------------------------------------------------- state helpers
 
@@ -127,6 +201,9 @@ function picked(): PrefabItem[] {
   return scan.prefabs.filter((p) => selected.has(itemKey(p)));
 }
 
+const running = () => !!run?.running;
+const busyNow = () => running() || cap.running || !!gen.busy;
+
 // ---------------------------------------------------------------- drawing
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
@@ -138,17 +215,24 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
 
 function renderNav() {
   renderProjects($("projects-body"), { projects, current: currentId }, { pick: pickProject, menu: projectMenu });
-  const pack = packs.filter((p) => p.source === "local");
-  const packsBody = $("packs-body");
-  if (!pack.length) packsBody.replaceChildren(el("p", "panel-empty", t("packs.empty")));
-  else {
-    const list = el("ul", "pack-list");
-    for (const p of packs) {
-      const li = el("li", "pack-row", `${p.id}${p.problem ? ` — ${p.problem}` : ""}`);
-      list.append(li);
-    }
-    packsBody.replaceChildren(list);
-  }
+  renderRuns($("runs-body"), { jobs, icons: jobIcons, opened: openedDir, loading: jobsLoading }, { open: (dir) => void openJob(dir), refresh: () => void loadRuns() });
+  renderPacks(
+    $("packs-body"),
+    { packs, projectPack: current()?.packId ?? null, shown: packShown, kind: packKind, prompt: packPrompt, lang: currentLang() },
+    {
+      show: (id) => {
+        packShown = id;
+        void loadPackPrompt();
+      },
+      use: (id) => void usePack(id),
+      kind: (k) => {
+        packKind = k;
+        void loadPackPrompt();
+      },
+      openFolder: (dir) => void call("open_path", { path: dir }).catch((e) => flashStatus(t("status.openFailed", { text: String(e) }))),
+    },
+  );
+  nav.setBadge("runs", newRuns, "info");
 }
 
 function renderHead() {
@@ -178,7 +262,8 @@ function renderList() {
     box.append(el("h2", "", t("empty.title")));
     const add = el("button", "act-btn", t("projects.add"));
     add.type = "button";
-    add.addEventListener("click", () => void pickFolder());
+    add.id = "empty-add";
+    add.addEventListener("click", (e) => void addMenu(e.currentTarget as HTMLElement));
     box.append(add, el("p", "muted", inTauri ? t("empty.drop") : t("empty.preview")));
     inner.replaceChildren(box);
     return;
@@ -186,13 +271,19 @@ function renderList() {
   tools.hidden = false;
   if (!scan) {
     const box = el("div", "empty-state");
-    box.append(el("p", scanError ? "hot-text" : "muted", scanError ? errorText(scanError) : t("prefabs.scanning")));
+    if (scanError) box.append(el("p", "hot-text", errorText(scanError)));
+    else {
+      box.append(el("p", "muted", t("prefabs.scanning")));
+      const ghosts = el("div", "prefab-grid ghost");
+      for (let i = 0; i < 12; i++) ghosts.append(el("div", "prefab-cell ghost-cell"));
+      box.append(ghosts);
+    }
     inner.replaceChildren(box);
     $("list-count").textContent = "";
     return;
   }
   shown = applyFilter(scan.prefabs, filter);
-  const view = { items: shown, all: scan.prefabs, filter, selected, focus: focusKey };
+  const view = { items: shown, all: scan.prefabs, filter, selected, focus: focusKey, thumbs };
   renderChips($("class-chips"), $("kind-chips"), view);
   renderGrid(inner, view);
   $("list-count").textContent = t("prefabs.count", { shown: shown.length, total: scan.prefabs.length });
@@ -206,14 +297,34 @@ function renderList() {
 
 function renderBody() {
   const now = picked();
-  const key = now.length === 1 ? now[0].path : null;
-  if (key !== genFor && !gen.busy) {
-    gen = emptyGen(gen.cli);
+  const key = now.length ? now.map((i) => i.path).join("|") : null;
+  if (key !== genFor && !busyNow()) {
+    const keepNote = now.length > 1 && gen.note;
+    gen = { ...emptyGen(gen.cli), note: keepNote ? gen.note : "" };
     genFor = key;
+    if (!run?.running) run = null;
+  }
+  if (now.length && opened && !busyNow()) {
+    opened = null;
+    openedDir = null;
   }
   const title = renderDetails(
     $("body-content"),
-    { project: current(), pack: packOf(current()), picked: now, lang: currentLang(), capture: cap, ready, gen },
+    {
+      project: current(),
+      pack: packOf(current()),
+      picked: now,
+      lang: currentLang(),
+      capture: cap,
+      ready,
+      gen,
+      run,
+      now: Date.now(),
+      bg: previewBg,
+      exportDir: (getSetting("exportDir") as string) || "",
+      exportRule: (getSetting("exportName") as string) || "icon_{prefab}",
+      opened,
+    },
     {
       setKind: (item, kind) => void setKind(item, kind),
       openFolder: (folder) => void openInProject(folder),
@@ -226,17 +337,61 @@ function renderBody() {
         gen.cli = cli;
       },
       rewrite: (item) => void runRewrite(item),
-      generate: (item) => void runGenerate(item),
-      checkReady: () => void checkReady(true),
-      postOption: (key, value) => {
-        gen[key] = value;
+      showPrompt: (item) => void showFinalPrompt(item),
+      make: (items) => void startMake(items),
+      retry: (kind, items) => void retry(kind, items),
+      cancel: () => void askCancel(),
+      option: (k, value) => {
+        if (k === "candidates") gen.candidates = Number(value) || 1;
+        else gen[k] = value;
       },
+      pickCand: (n) => {
+        const r = shownResult();
+        if (!r) return;
+        r.cand = n;
+        r.exported = null;
+        renderBody();
+      },
+      toggleRaw: () => {
+        const r = shownResult();
+        if (!r) return;
+        r.showRaw = !r.showRaw;
+        renderBody();
+      },
+      setBg: (bg) => setPreviewBg(bg),
       repost: () => void runPost(),
-      exportIcon: (item) => void runExport(item),
+      exportIcon: () => void runExport(),
+      exportPassed: () => void exportPassed(),
+      pickExportFolder: () => void pickExportFolder(),
+      exportName: (text) => {
+        gen.exportName = text;
+      },
+      exportSize: (size, on) => {
+        gen.exportSizes = on ? [...new Set([...gen.exportSizes, size])].sort((a, b) => a - b) : gen.exportSizes.filter((s) => s !== size);
+        void call("settings_set", { patch: { exportSizes: gen.exportSizes } }).then(receiveSettings).catch(() => {});
+        renderBody();
+      },
       openPath: (path) => void call("open_path", { path }).catch((e) => flashStatus(t("status.openFailed", { text: String(e) }))),
+      checkReady: () => void checkReady(true),
+      closeOpened: () => {
+        opened = null;
+        openedDir = null;
+        render();
+      },
+      rerunOpened: () => void rerunOpened(),
     },
   );
   $("body-title").textContent = title || t("body.title");
+}
+
+function readyText(): { text: string; title: string; bad: boolean } {
+  if (!ready) return { text: "", title: "", bad: false };
+  const mark = (ok: boolean | null) => (ok ? "✓" : ok === null ? "–" : "!");
+  const codexOk = ready.codex.found && ready.codex.loggedIn !== false && ready.codex.imageTool !== false;
+  const claudeOk = !ready.claude.enabled ? null : ready.claude.found && ready.claude.loggedIn !== false;
+  const unityOk = ready.unityCli.found ? true : null;
+  const text = `Codex ${mark(codexOk)} · Claude ${mark(claudeOk)} · Unity ${mark(unityOk)}`;
+  return { text, title: t("status.readyTitle"), bad: !codexOk };
 }
 
 function renderStatus() {
@@ -244,15 +399,20 @@ function renderStatus() {
   setStatusPath(p ? p.path : (appInfo?.home ?? ""));
   $("status-mode").textContent = p ? modeText(p) : "";
   $("status-mode").title = p ? reasonText(p) : "";
-  $("status-ready").textContent = "";
-  $("status-busy").hidden = !scanning && !cap.running && !gen.busy;
-  $("status-progress-text").textContent = cap.running
-    ? cap.progress
-    : scanning
-    ? t("status.scanning")
-    : scan
-      ? t("status.scanned", { n: scan.total, ms: scan.elapsedMs })
-      : "";
+  const r = readyText();
+  $("status-ready").textContent = r.text;
+  $("status-ready").title = r.title;
+  $("status-ready").classList.toggle("warn-text", r.bad);
+  $("status-busy").hidden = !scanning && !cap.running && !gen.busy && !running();
+  let progress = "";
+  if (running() && run) {
+    const it = run.items.find((i) => i.state === "running");
+    const s = Math.round((Date.now() - run.startedMs) / 1000);
+    progress = it ? t("status.making", { name: it.name, s }) : t("status.capturing", { s });
+  } else if (cap.running) progress = cap.progress;
+  else if (scanning) progress = t("status.scanning");
+  else if (scan) progress = t("status.scanned", { n: scan.total, ms: scan.elapsedMs });
+  $("status-progress-text").textContent = progress;
   $("status-today").textContent = t("status.today", { n: imagesToday });
   $("status-version").textContent = appInfo ? t("status.version", { version: appInfo.version }) : "";
   fitStatusbar();
@@ -279,6 +439,12 @@ function renderSelection() {
   renderBody();
 }
 
+function setPreviewBg(bg: string) {
+  previewBg = bg;
+  writePref("previewBg", bg);
+  renderBody();
+}
+
 // ---------------------------------------------------------------- projects
 
 async function loadProjects() {
@@ -286,6 +452,7 @@ async function loadProjects() {
   packs = (await call<PackSummary[]>("pack_list").catch(() => null)) ?? [];
   if (currentId && !projects.some((p) => p.id === currentId)) currentId = null;
   if (!currentId && projects.length) currentId = projects[0].id;
+  if (!packs.some((p) => p.id === packShown)) packShown = current()?.packId ?? packs[0]?.id ?? "default";
 }
 
 function pickProject(id: string) {
@@ -295,6 +462,7 @@ function pickProject(id: string) {
   if (!cap.running) cap = emptyCapture();
   scan = null;
   scanError = null;
+  thumbs = {};
   selected = new Set();
   anchor = null;
   focusKey = null;
@@ -316,6 +484,7 @@ async function runScan(force: boolean) {
     const keys = new Set(result.prefabs.map(itemKey));
     selected = new Set([...selected].filter((k) => keys.has(k)));
     if (focusKey && !keys.has(focusKey)) focusKey = null;
+    void loadThumbs();
   } catch (e) {
     if (id !== currentId) return;
     scanError = String(e);
@@ -323,7 +492,17 @@ async function runScan(force: boolean) {
   } finally {
     scanning = false;
   }
+  applyPreviewPick();
   render();
+}
+
+async function loadThumbs() {
+  const id = currentId;
+  if (!id) return;
+  const got = await prefabThumbs(id).catch(() => null);
+  if (!got || id !== currentId) return;
+  thumbs = got;
+  renderList();
 }
 
 async function addPath(path: string) {
@@ -353,17 +532,32 @@ async function pickFolder() {
   }
 }
 
+/** A path typed or pasted (the same checks as a picked folder). */
+async function typePath() {
+  const text = await showPrompt({
+    title: t("projects.typePath"),
+    message: t("projects.typePathHint"),
+    value: "",
+    placeholder: "C:\\Projects\\MyGame",
+    confirmLabel: t("projects.add"),
+    cancelLabel: t("dialog.cancel"),
+  });
+  const path = text?.trim().replace(/^"(.*)"$/, "$1");
+  if (path) await addPath(path);
+}
+
 async function hubMenu(): Promise<MenuEntry[]> {
   const hub = (await call<HubProject[]>("hub_projects").catch(() => null)) ?? [];
   const known = new Set(projects.map((p) => p.path.toLowerCase()));
   const usable = hub.filter((h) => h.exists && !known.has(h.path.toLowerCase())).slice(0, 12);
   if (!usable.length) return [{ label: t("projects.hubNone"), action: () => {}, disabled: true }];
-  return usable.map((h) => ({ label: `${h.title}${h.version ? `  (${h.version})` : ""}`, action: () => void addPath(h.path) }));
+  return usable.map((h) => ({ label: `${h.title}${h.version ? `  (${h.version})` : ""}`, id: "hub-project", action: () => void addPath(h.path) }));
 }
 
 async function addMenu(button: HTMLElement) {
   const entries: MenuEntry[] = [
-    { label: t("projects.pickFolder"), shortcut: "Ctrl+O", action: () => void pickFolder() },
+    { label: t("projects.pickFolder"), shortcut: "Ctrl+O", id: "pick-folder", action: () => void pickFolder() },
+    { label: t("projects.typePath"), id: "type-path", action: () => void typePath() },
     "separator",
     { label: t("projects.fromHub"), action: () => {}, disabled: true },
     ...(await hubMenu()),
@@ -437,12 +631,12 @@ function folderMenu(button: HTMLElement) {
 
 function clickCell(e: MouseEvent) {
   const cell = (e.target as Element).closest<HTMLElement>(".prefab-cell");
-  if (!cell) return;
+  if (!cell || !cell.dataset.key) return;
   const order = shown.map(itemKey);
-  const next = nextSelection(order, selected, anchor, cell.dataset.key!, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
+  const next = nextSelection(order, selected, anchor, cell.dataset.key, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey });
   selected = next.selected;
   anchor = next.anchor;
-  focusKey = cell.dataset.key!;
+  focusKey = cell.dataset.key;
   renderSelection();
 }
 
@@ -466,6 +660,24 @@ function gridKeysActive(): boolean {
   return document.activeElement === $("list") && !!scan;
 }
 
+function cellMenu(e: MouseEvent) {
+  const cell = (e.target as Element).closest<HTMLElement>(".prefab-cell");
+  const item = cell && scan?.prefabs.find((p) => itemKey(p) === cell.dataset.key);
+  if (!item) return;
+  e.preventDefault();
+  if (!selected.has(itemKey(item))) {
+    selected = new Set([itemKey(item)]);
+    anchor = focusKey = itemKey(item);
+    renderSelection();
+  }
+  showContextMenu(e, [
+    ...KIND_CHIPS.map((k) => ({ label: t("prefabs.setKind", { kind: t(`kind.${k}`) }), checked: item.kind === k, action: () => void setKind(item, k) })),
+    { label: t("details.kindAuto"), action: () => void setKind(item, null) },
+    "separator",
+    { label: t("details.openFolder"), action: () => void openInProject(item.folder) },
+  ]);
+}
+
 async function setKind(item: PrefabItem, kind: string | null) {
   if (!currentId || !item.guid) {
     flashStatus(t("details.noGuid"));
@@ -479,6 +691,45 @@ async function setKind(item: PrefabItem, kind: string | null) {
   }
 }
 
+/** Thumbnails for the visible 3D prefabs that have none (one capture request, after a yes). */
+async function makeThumbs() {
+  const id = currentId;
+  const p = current();
+  if (!id || !p || !scan || busyNow()) return;
+  const max = settingNumber("thumbnails.maxPerRun", 200);
+  const items = shown.filter((i) => (i.class === "3d" || i.class === "model") && !(i.guid && thumbs[i.guid])).slice(0, max);
+  if (!items.length) {
+    flashStatus(t("thumbs.none"));
+    return;
+  }
+  const secs = p.mode === "attach" ? 2 + items.length * 0.25 : 25 + items.length * 0.3;
+  const ok = await showDialog({
+    title: t("thumbs.title"),
+    message: t("thumbs.confirm", { n: items.length, s: Math.round(secs), mode: modeText(p) }),
+    confirmLabel: t("thumbs.make"),
+    cancelLabel: t("dialog.cancel"),
+  });
+  if (!ok) return;
+  cap.running = true;
+  cap.progress = t("capture.running");
+  renderStatus();
+  try {
+    const report = await captureOnly(id, items.map((i) => i.path), (e) => {
+      cap.progress = progressText(e);
+      renderStatus();
+    }, "thumb");
+    if (report.error) flashStatus(captureErrorText(report.error), 6000);
+    else flashStatus(t("thumbs.done", { n: report.items.filter((i) => i.ok).length }), 5000);
+  } catch (e) {
+    flashStatus(errorText(String(e)), 5000);
+  } finally {
+    cap.running = false;
+    cap.progress = "";
+    renderStatus();
+    void loadThumbs();
+  }
+}
+
 // ---------------------------------------------------------------- capture
 
 function progressText(e: CaptureEvent): string {
@@ -488,7 +739,7 @@ function progressText(e: CaptureEvent): string {
 /** Captures the items (in the open editor or in batch mode) and shows what came out. */
 async function runCapture(items: PrefabItem[]) {
   const id = currentId;
-  if (!id || cap.running || !items.length) return;
+  if (!id || busyNow() || !items.length) return;
   cap.running = true;
   cap.error = null;
   cap.progress = t("capture.running");
@@ -529,30 +780,37 @@ async function runCapture(items: PrefabItem[]) {
       renderBody();
       renderStatus();
       void refreshProjects(false);
+      void loadThumbs();
     } else {
       cap = emptyCapture();
     }
   }
 }
 
-// ---------------------------------------------------------------- prompt and raw pictures
+// ---------------------------------------------------------------- prompt
 
 const cliName = (cli: string) => (cli === "claude" ? "Claude" : "Codex");
 
 /** The note worked into the fixed prompt (no picture): the before/after shows under the note. */
 async function runRewrite(item: PrefabItem) {
   const p = current();
-  if (!p || gen.busy) return;
+  if (!p || busyNow() || !gen.note.trim()) return;
   gen.busy = "rewrite";
   gen.error = null;
+  gen.failure = null;
   renderBody();
   renderStatus();
   try {
     gen.diff = await promptRewrite(p.packId, item.kind, gen.note, gen.cli);
-    if (gen.diff.failure) flashStatus(failureText(gen.diff.failure), 6000);
-    else if (gen.diff.fallbackFrom) flashStatus(t("prompt.fallback", { from: cliName(gen.diff.fallbackFrom) }), 6000);
+    if (gen.diff.failure) {
+      gen.error = `rewrite:${gen.diff.failure.kind}`;
+      gen.errorStage = "rewrite";
+      gen.failure = gen.diff.failure;
+      flashStatus(failureText(gen.diff.failure), 6000);
+    } else if (gen.diff.fallbackFrom) flashStatus(t("prompt.fallback", { from: cliName(gen.diff.fallbackFrom) }), 6000);
   } catch (e) {
     gen.error = String(e);
+    gen.errorStage = "rewrite";
   } finally {
     gen.busy = "";
     renderBody();
@@ -560,58 +818,208 @@ async function runRewrite(item: PrefabItem) {
   }
 }
 
-/** One raw picture from the capture (counts against the image limit). */
-async function runGenerate(item: PrefabItem) {
+/** The whole prompt that would go now (the rewrite's when there is one, else the fixed one). */
+async function showFinalPrompt(item: PrefabItem) {
   const p = current();
-  const capture = cap.outputs[item.path];
-  if (!p || gen.busy || !capture) return;
-  gen.busy = "generate";
+  if (!p) return;
+  let text = gen.diff?.ok && gen.diff.finalText && gen.diff.note === gen.note ? gen.diff.finalText : "";
+  if (!text) text = (await promptPreview(p.packId, item.kind).catch(() => null))?.text ?? "";
+  await showDialog({ title: t("make.showPrompt"), message: gen.note.trim() && !gen.diff ? t("make.promptFixedOnly") : "", detail: text });
+}
+
+// ---------------------------------------------------------------- make: the whole run
+
+/** Asks about a note that turns the outline off (the before/after said so). True: go on. */
+async function outlineChoice(): Promise<boolean | null> {
+  if (!gen.diff || gen.diff.note !== gen.note || gen.diff.diff.outline !== "off") return false;
+  const pick = await showChoice({
+    title: t("outlineOff.title"),
+    message: t("outlineOff.message"),
+    choices: [
+      { value: "keep", label: t("outlineOff.keep") },
+      { value: "off", label: t("outlineOff.off"), kind: "primary" },
+    ],
+    cancelLabel: t("dialog.cancel"),
+  });
+  if (pick === null) return null;
+  return pick === "off";
+}
+
+async function startMake(items: PrefabItem[], extra: { note?: string; cli?: string; noRefs?: boolean } = {}) {
+  const p = current();
+  const id = currentId;
+  if (!p || !id || busyNow() || !items.length) return;
+  const offOk = extra.note === undefined ? await outlineChoice() : false;
+  if (offOk === null) return;
+  const note = extra.note ?? gen.note;
+  const cli = extra.cli ?? gen.cli;
   gen.error = null;
-  gen.raw = null;
+  gen.errorStage = null;
+  gen.failure = null;
+  gen.result = null;
+  run = newRun(
+    items.map((i) => ({ asset: i.path, name: i.name, captured: !!cap.outputs[i.path] })),
+    Date.now(),
+  );
+  startTick();
   renderBody();
   renderStatus();
   try {
-    const r = await generateRaw(p.packId, item.kind, capture, item.name, gen.note, gen.cli);
-    if (r.rewrite && r.rewrite.cli) gen.diff = r.rewrite;
-    const c = r.candidates[0];
-    if (c?.ok && c.raw) {
-      gen.raw = await captureImage(c.raw).catch(() => null);
-      const alpha = c.hasAlpha ? t("make.alpha") : t("make.opaque");
-      gen.rawInfo = t("make.rawInfo", { w: c.width, h: c.height, s: (c.call.elapsedMs / 1000).toFixed(0), alpha });
-      flashStatus(t("make.done", { s: (r.elapsedMs / 1000).toFixed(0) }), 5000);
-      gen.job = r.jobDir;
-      gen.exported = null;
-    } else if (c?.failure) {
-      gen.error = `image:${c.failure.kind}`;
-      flashStatus(failureText(c.failure), 8000);
-    } else if (r.error) {
-      gen.error = r.error;
-      flashStatus(generateErrorText(r.error), 8000);
+    const report = await runStart(
+      {
+        id,
+        items: items.map((i) => ({ asset: i.path, kind: i.kind, ...(cap.outputs[i.path] ? { capture: cap.outputs[i.path] } : {}) })),
+        note,
+        cli,
+        candidates: gen.candidates,
+        outline: gen.outline,
+        background: gen.background,
+        outlineOffOk: offOk,
+        noRefs: !!extra.noRefs,
+      },
+      (e) => {
+        if (!run) return;
+        applyEvent(run, e, Date.now());
+        if (e.state === "progress") return;
+        renderBody();
+        renderStatus();
+      },
+    );
+    if (id !== currentId || !run) return;
+    finishRun(run, report, Date.now());
+    for (const it of report.items) {
+      if (it.capture && !cap.outputs[it.asset]) {
+        cap.outputs[it.asset] = it.capture;
+        cap.images[it.asset] = await captureImage(it.capture).catch(() => "");
+      }
+      if (it.stage === "capture" && it.error) cap.failures[it.asset] = it.error;
     }
+    if (report.items.length === 1) await settleOne(report.items[0]);
+    else if (report.stopped) flashStatus(runErrorText(`image:${report.stopped}`), 8000);
+    else {
+      const c = report.items.filter((i) => i.state === "ok").length;
+      flashStatus(t("run.done", { ok: c, n: report.items.length, s: Math.round(report.elapsedMs / 1000) }), 6000);
+    }
+    if (report.capture?.pending) void checkRecovery();
+    if (report.items.some((i) => i.jobDir)) noteNewRuns(report.items.filter((i) => i.jobDir).length);
   } catch (e) {
+    if (run) {
+      run.running = false;
+      run.error = String(e);
+    }
     gen.error = String(e);
+    gen.errorStage = null;
+    flashStatus(errorText(String(e)), 6000);
   } finally {
-    gen.busy = "";
+    stopTick();
     imagesToday = await call<number>("images_today").catch(() => imagesToday);
     renderBody();
     renderStatus();
+    void loadThumbs();
   }
-  if (gen.job && !gen.post) await runPost();
 }
 
-/** Post-processing of candidate 1 with the picked outline and background (no new picture). */
+/** The result panel (or the failure and its buttons) for a one-item run. */
+async function settleOne(it: RunItem) {
+  if (it.rewrite && it.rewrite.cli) gen.diff = it.rewrite;
+  if (it.state !== "ok") {
+    gen.error = it.error ?? it.state;
+    gen.errorStage = it.stage;
+    gen.failure = it.rewrite?.failure ?? it.candidates.find((c) => c.failure)?.failure ?? null;
+    if (it.state === "cancelled") {
+      gen.error = null;
+      flashStatus(t("run.cancelled"), 5000);
+    } else flashStatus(gen.failure ? failureText(gen.failure) : runErrorText(gen.error), 8000);
+    if (!it.candidates.some((c) => c.post)) return;
+  }
+  gen.result = await resultFrom(it.jobDir ?? "", it.name, it.kind, it.candidates.map(candFrom), it.best, it.outlineKept, null);
+  if (it.outlineKept) flashStatus(t("result.outlineKept"), 8000);
+  else if (it.state === "ok") flashStatus(t("make.done", { s: Math.round(it.elapsedMs / 1000) }), 5000);
+}
+
+function candFrom(c: RunItem["candidates"][number]): CandView {
+  return { cand: c.cand, post: c.post, failure: c.failure, passed: c.passed, checked: c.checked };
+}
+
+function scoreOf(p: PostJobReport): { passed: number; checked: number } {
+  let passed = 0;
+  let checked = 0;
+  for (const s of p.sizes) {
+    passed += s.checks.items.filter((i) => i.pass).length;
+    checked += s.checks.items.length;
+  }
+  return { passed, checked };
+}
+
+async function resultFrom(job: string, name: string, kind: string, cands: CandView[], best: number | null, outlineKept: boolean, from: ResultView["from"]): Promise<ResultView> {
+  const r: ResultView = { job, name, kind, cands, best, cand: best ?? cands[0]?.cand ?? 1, icons: {}, raws: {}, showRaw: false, exported: null, outlineKept, from };
+  for (const c of cands) {
+    if (c.post) {
+      r.icons[c.cand] = await captureImage(c.post.sizes[0].path).catch(() => "");
+      if (c.post.raw) r.raws[c.cand] = await captureImage(c.post.raw).catch(() => "");
+    }
+  }
+  return r;
+}
+
+/** The result on the right now: an opened job, else the picked prefab's. */
+function shownResult(): ResultView | null {
+  return opened ?? gen.result;
+}
+
+async function retry(kind: RetryKind, items: PrefabItem[]) {
+  if (kind === "otherCli") {
+    gen.cli = gen.cli === "claude" ? "codex" : "claude";
+    await startMake(items, { cli: gen.cli });
+  } else if (kind === "withoutNote") await startMake(items, { note: "" });
+  else if (kind === "noRefs") await startMake(items, { noRefs: true });
+  else await startMake(items, { note: gen.note });
+}
+
+/** Esc or 「Stop」: asks, then stops the run (a capture finishes its request first). */
+async function askCancel() {
+  if (!running() || !run || run.cancelling) return;
+  const ok = await showDialog({ title: t("cancel.title"), message: t("cancel.message"), confirmLabel: t("cancel.stop"), cancelLabel: t("cancel.keep"), danger: true });
+  if (!ok || !run?.running) return;
+  run.cancelling = true;
+  await runCancel().catch(() => false);
+  renderBody();
+}
+
+function startTick() {
+  stopTick();
+  tick = window.setInterval(() => {
+    tickSteppers($("body-content"), Date.now());
+    renderStatus();
+  }, 1000);
+}
+
+function stopTick() {
+  if (tick !== null) window.clearInterval(tick);
+  tick = null;
+}
+
+// ---------------------------------------------------------------- finish again, export
+
+/** Post-processing of the shown candidate with the picked outline and background (no new picture). */
 async function runPost() {
-  if (!gen.job || gen.busy) return;
+  const r = shownResult();
+  if (!r || busyNow()) return;
   gen.busy = "post";
-  gen.error = null;
   renderBody();
   renderStatus();
   try {
-    gen.post = await postRerun(gen.job, 1, { outline: gen.outline, background: gen.background });
-    gen.icon = await captureImage(gen.post.sizes[0].path).catch(() => null);
-    gen.exported = null;
+    const post = await postRerun(r.job, r.cand, { outline: gen.outline, background: gen.background });
+    const c = r.cands.find((x) => x.cand === r.cand);
+    if (c) {
+      c.post = post;
+      Object.assign(c, scoreOf(post));
+    }
+    r.icons[r.cand] = await captureImage(post.sizes[0].path).catch(() => "");
+    r.exported = null;
+    r.showRaw = false;
+    flashStatus(post.pass ? t("checks.pass") : t("checks.fail", { n: post.sizes[0].checks.failed.length }), 4000);
   } catch (e) {
-    gen.error = String(e);
     flashStatus(t("result.err.post", { code: String(e) }), 6000);
   } finally {
     gen.busy = "";
@@ -620,29 +1028,183 @@ async function runPost() {
   }
 }
 
-/** Copies the finished icon to the export folder from the settings. */
-async function runExport(item: PrefabItem) {
-  if (!gen.job || gen.busy || !gen.post) return;
+/** Copies the shown candidate's icons to the export folder from the settings. */
+async function runExport() {
+  const r = shownResult();
+  const folder = (getSetting("exportDir") as string) || "";
+  if (!r || busyNow()) return;
+  if (!folder) {
+    await pickExportFolder();
+    if (!getSetting("exportDir")) return;
+  }
   gen.busy = "export";
   renderBody();
   try {
-    gen.exported = await exportIcons(gen.job, 1, [], item.name, null);
-    if (gen.exported.ok) flashStatus(t("result.exported", { n: gen.exported.files.length, folder: gen.exported.folder }), 5000);
+    r.exported = await exportIcons(r.job, r.cand, gen.exportSizes, r.name, (getSetting("exportDir") as string) || null, gen.exportName.trim() || null);
+    if (r.exported.ok) flashStatus(t("result.exported", { n: r.exported.files.length, folder: r.exported.folder }), 5000);
+    if (r.exported.ok && openedDir) void loadRuns();
   } catch (e) {
-    gen.exported = { ok: false, folder: "", files: [], error: String(e) };
+    r.exported = { ok: false, folder: "", files: [], error: String(e) };
   } finally {
     gen.busy = "";
     renderBody();
   }
 }
 
-/** Readiness of the CLIs; a banner when Codex has to be copied out of the desktop app first. */
+/** Several items: exports the recommended candidate of every item that passed. */
+async function exportPassed() {
+  if (!run?.report || busyNow()) return;
+  const folder = (getSetting("exportDir") as string) || "";
+  if (!folder) return;
+  gen.busy = "export";
+  renderBody();
+  let files = 0;
+  try {
+    for (const it of run.report.items) {
+      if (it.state !== "ok" || !it.pass || !it.jobDir || !it.best) continue;
+      const x = await exportIcons(it.jobDir, it.best, gen.exportSizes, it.name, folder, null);
+      if (x.ok) files += x.files.length;
+      else flashStatus(t("result.err.other", { code: x.error ?? "" }), 6000);
+    }
+    gen.result = { job: "", name: "", kind: "", cands: [], best: null, cand: 1, icons: {}, raws: {}, showRaw: false, outlineKept: false, exported: { ok: true, folder, files: Array.from({ length: files }, () => ({ size: 0, path: "" })), error: null } };
+    flashStatus(t("result.exported", { n: files, folder }), 6000);
+    void loadRuns();
+  } finally {
+    gen.busy = "";
+    renderBody();
+  }
+}
+
+async function pickExportFolder() {
+  if (!inTauri) {
+    flashStatus(t("empty.preview"));
+    return;
+  }
+  try {
+    const dir = await exportPick();
+    if (!dir) return;
+    await setSetting("exportDir", dir);
+    renderBody();
+  } catch (e) {
+    const code = String(e);
+    flashStatus(code.startsWith("insideProject:") ? t("result.err.insideProject", { path: code.slice(14) }) : errorText(code), 6000);
+  }
+}
+
+// ---------------------------------------------------------------- 「Runs」 tab
+
+async function loadRuns() {
+  jobsLoading = true;
+  const list = await jobsList(60).catch(() => null);
+  jobsLoading = false;
+  jobs = list ?? [];
+  for (const j of jobs) {
+    if (j.icon && !jobIcons[j.dir]) jobIcons[j.dir] = await captureImage(j.icon).catch(() => "");
+  }
+  renderNav();
+}
+
+function noteNewRuns(n: number) {
+  if (nav.current() !== "runs" || !nav.isOpen()) newRuns += n;
+  void loadRuns();
+}
+
+function onTabShown() {
+  if (nav.current() === "runs") {
+    newRuns = 0;
+    nav.setBadge("runs", 0);
+    void loadRuns();
+  } else if (nav.current() === "packs") void loadPackPrompt();
+}
+
+async function openJob(dir: string) {
+  if (busyNow()) return;
+  try {
+    const d: JobDetail = await jobGet(dir);
+    const job = d.job as Record<string, unknown>;
+    const str = (k: string) => (typeof job[k] === "string" ? (job[k] as string) : "");
+    const cands: CandView[] = d.posts.map((p) => ({ cand: p.candidate, post: p, failure: null, ...scoreOf(p) }));
+    const best = typeof job.best === "number" ? job.best : (cands.find((c) => c.post?.pass)?.cand ?? cands[0]?.cand ?? null);
+    const summary = jobs.find((j) => j.dir === dir);
+    opened = await resultFrom(d.dir, str("name") || summary?.name || "?", str("kind") || "generic", cands, best, false, {
+      at: summary?.at ?? "",
+      project: str("projectName") || str("project"),
+      note: str("note"),
+      asset: str("asset"),
+    });
+    if (d.export) opened.exported = { ok: true, folder: d.export.folder, files: d.export.files, error: null };
+    openedDir = dir;
+    selected = new Set();
+    renderSelection();
+    renderNav();
+    $("body-main").scrollTop = 0;
+    if (overlayQuery.matches) nav.setOpen(false);
+  } catch (e) {
+    flashStatus(errorText(String(e)), 5000);
+  }
+}
+
+/** 「Run again」 for an opened job: its project and prefab, with its note. */
+async function rerunOpened() {
+  const r = opened;
+  if (!r?.from?.asset) return;
+  const job = jobs.find((j) => j.dir === openedDir);
+  const proj = projects.find((p) => job?.project && p.path.toLowerCase() === job.project.toLowerCase());
+  if (!proj) {
+    flashStatus(t("runs.noProject"), 5000);
+    return;
+  }
+  const note = r.from.note;
+  opened = null;
+  openedDir = null;
+  if (proj.id !== currentId) {
+    pickProject(proj.id);
+    for (let i = 0; i < 100 && (!scan || scanning); i++) await new Promise((res) => setTimeout(res, 100));
+  }
+  const item = scan?.prefabs.find((p) => p.path === r.from!.asset);
+  if (!item) {
+    flashStatus(t("runs.noPrefab"), 5000);
+    render();
+    return;
+  }
+  selected = new Set([itemKey(item)]);
+  anchor = focusKey = itemKey(item);
+  renderSelection();
+  gen.note = note;
+  renderBody();
+  await startMake([item], { note });
+}
+
+// ---------------------------------------------------------------- 「Styles」 tab
+
+async function loadPackPrompt() {
+  packPrompt = await promptPreview(packShown, packKind).catch(() => null);
+  renderNav();
+}
+
+async function usePack(id: string) {
+  if (!currentId) return;
+  try {
+    await call("project_set_pack", { id: currentId, packId: id });
+    await loadProjects();
+    render();
+    void runScan(false);
+  } catch (e) {
+    flashStatus(errorText(String(e)), 5000);
+  }
+}
+
+// ---------------------------------------------------------------- readiness, recovery
+
+/** Readiness of the CLIs; a banner when Codex is missing or has to be copied out of the desktop app. */
 async function checkReady(refresh: boolean) {
   ready = await readiness(refresh).catch(() => null);
   imagesToday = (await call<number>("images_today").catch(() => 0)) ?? 0;
   renderBody();
   renderStatus();
-  if (ready && ready.codexApp && (!ready.codex.found || ready.codexCopyNeeded)) {
+  if (!ready) return;
+  const badPath = !ready.codex.found && !!String(getSetting("codex.path") ?? "").trim();
+  if (!badPath && ready.codexApp && (!ready.codex.found || ready.codexCopyNeeded)) {
     const mb = Math.round(ready.codexApp.bytes / 1048576);
     showBanner({
       key: `codex-copy-${ready.codexApp.version}`,
@@ -650,7 +1212,19 @@ async function checkReady(refresh: boolean) {
       warn: !ready.codex.found,
       actions: [{ label: t("codex.copy"), run: () => void runCopyCodex() }],
     });
-  }
+  } else if (!ready.codex.found) {
+    showBanner({
+      key: `codex-missing-${ready.codex.problem ?? ""}`,
+      message: badPath ? t("codex.badPath") : t("codex.missing"),
+      warn: true,
+      actions: [
+        { label: t("codex.setPath"), run: () => settingsDialog.open("generate") },
+        { label: t("ready.check"), run: () => void checkReady(true) },
+      ],
+    });
+  } else if (ready.codex.loggedIn === false) {
+    showBanner({ key: "codex-login", message: t("llm.err.auth", { cli: "Codex", text: "" }), warn: true, actions: [{ label: t("ready.check"), run: () => void checkReady(true) }] });
+  } else showBanner(null);
 }
 
 async function runCopyCodex() {
@@ -672,10 +1246,7 @@ async function runCopyCodex() {
 /** Batch captures left by an earlier run: a banner to clean them up (or one saying Unity still runs). */
 async function checkRecovery() {
   const left = (await call<RecoveryEntry[]>("recovery_status").catch(() => null)) ?? [];
-  if (!left.length) {
-    showBanner(null);
-    return;
-  }
+  if (!left.length) return;
   const running = left.filter((e) => e.running).length;
   if (running === left.length) {
     showBanner({ key: `recovery-running-${left.map((e) => e.runId).join(",")}`, message: t("recovery.running", { n: running }) });
@@ -692,6 +1263,7 @@ async function checkRecovery() {
           void call<BatchFinish[]>("recovery_run")
             .then((done) => {
               flashStatus(t("recovery.done", { n: done.length }), 5000);
+              showBanner(null);
               void checkRecovery();
             })
             .catch((e) => flashStatus(errorText(String(e)), 5000)),
@@ -751,12 +1323,22 @@ function onSettingsChanged(changed: SettingKey[], first = false) {
     const choice = getSetting("theme");
     theme.apply(isThemeChoice(choice) ? choice : "system", first ? 0 : 250);
   }
+  // Listeners run before the file is written: check the CLIs once the new paths are saved
+  if (!first && changed.some((k) => k.startsWith("codex.") || k.startsWith("claude."))) void whenSaved().then(() => checkReady(true));
+  if (!first && changed.includes("exportDir")) renderBody();
+}
+
+/** The one picked prefab (the make shortcuts act on it), or all picked. */
+function pickedForKeys(): PrefabItem[] {
+  const now = picked();
+  return now.length ? now : [];
 }
 
 function bindEvents() {
   $("settings-btn").addEventListener("click", openSettings);
   $("project-add").addEventListener("click", (e) => void addMenu(e.currentTarget as HTMLElement));
   $("status-version").addEventListener("click", () => settingsDialog.open("about"));
+  $("status-ready").addEventListener("click", () => void checkReady(true));
   $("status-path").addEventListener("click", () => {
     const p = current();
     if (p) void copyText(p.path);
@@ -768,27 +1350,36 @@ function bindEvents() {
     });
   }
   $("folder-btn").addEventListener("click", (e) => folderMenu(e.currentTarget as HTMLElement));
+  $("thumbs-btn").addEventListener("click", () => void makeThumbs());
   $("list-more").addEventListener("click", (e) =>
     showMenuBelow(e.currentTarget as HTMLElement, [
       { label: t("prefabs.rescan"), shortcut: "F5", action: () => void runScan(false) },
       { label: t("prefabs.rescanAll"), shortcut: "Shift+F5", action: () => void runScan(true) },
+      { label: t("thumbs.make"), action: () => void makeThumbs() },
       "separator",
-      { label: t("prefabs.resetFilter"), action: () => setFilter({ ...DEFAULT_FILTER }) },
+      { label: t("prefabs.resetFilter"), id: "reset-filter", action: () => setFilter({ ...DEFAULT_FILTER }) },
     ]),
   );
   const find = $("find-input") as HTMLInputElement;
   find.addEventListener("input", () => setFilter({ text: find.value }));
   $("list").addEventListener("click", clickCell);
+  $("list").addEventListener("contextmenu", cellMenu);
   $("list").addEventListener("dblclick", (e) => {
     if ((e.target as Element).closest(".prefab-cell")) $("body-main").focus();
   });
+  $("nav-tabs").addEventListener("click", () => setTimeout(onTabShown, 0));
+  $("nav-tabs").addEventListener("keydown", () => setTimeout(onTabShown, 0));
   setBannerFocusHome(() => $("list").focus());
   initBodyResize({ fold: () => setBodyOpen(false) });
   const inGrid = (fn: () => void) => () => gridKeysActive() && (fn(), true);
+  const showTab = (tab: string) => () => {
+    nav.show(tab);
+    onTabShown();
+  };
   initKeys([
-    { keys: "Ctrl+1", run: () => nav.show("projects") },
-    { keys: "Ctrl+2", run: () => nav.show("runs") },
-    { keys: "Ctrl+3", run: () => nav.show("packs") },
+    { keys: "Ctrl+1", run: showTab("projects") },
+    { keys: "Ctrl+2", run: showTab("runs") },
+    { keys: "Ctrl+3", run: showTab("packs") },
     { keys: "Ctrl+B", run: () => nav.toggle(), inFields: true },
     { keys: "Ctrl+\\", run: () => setBodyOpen(!bodyOpen), inFields: true },
     { keys: "Ctrl+O", run: () => void pickFolder(), inFields: true },
@@ -803,6 +1394,39 @@ function bindEvents() {
     },
     { keys: "F5", run: () => void runScan(false), inFields: true },
     { keys: "Shift+F5", run: () => void runScan(true), inFields: true },
+    {
+      keys: "Ctrl+R",
+      inFields: true,
+      run: () => {
+        const items = pickedForKeys().filter((i) => i.class === "3d" || i.class === "model");
+        if (items.length) void runCapture(items);
+      },
+    },
+    {
+      keys: "Ctrl+Enter",
+      inFields: true,
+      run: () => {
+        const items = pickedForKeys().filter((i) => i.class === "3d" || i.class === "model");
+        if (items.length) void startMake(items);
+      },
+    },
+    {
+      keys: "Ctrl+Shift+Enter",
+      inFields: true,
+      run: () => {
+        const items = pickedForKeys();
+        if (items.length === 1) void runRewrite(items[0]);
+      },
+    },
+    { keys: "Ctrl+E", inFields: true, run: () => (shownResult() ? void runExport() : false) },
+    {
+      keys: "B",
+      run: () => {
+        const f = document.activeElement;
+        if (!(f instanceof HTMLElement) || !f.closest(".capture-preview")) return false;
+        setPreviewBg(BGS[(BGS.indexOf(previewBg) + 1) % BGS.length]);
+      },
+    },
     { keys: "ArrowRight", run: inGrid(() => moveFocus(1, false)) },
     { keys: "ArrowLeft", run: inGrid(() => moveFocus(-1, false)) },
     { keys: "ArrowDown", run: inGrid(() => moveFocus(gridColumns($("list-inner")), false)) },
@@ -821,6 +1445,10 @@ function bindEvents() {
           setFilter({ text: "" });
           return;
         }
+        if (running()) {
+          void askCancel();
+          return;
+        }
         return false;
       },
     },
@@ -830,7 +1458,7 @@ function bindEvents() {
   window.addEventListener("resize", fitStatusbar);
   // Lock file and branch again every 30 s while the window has the focus
   window.setInterval(() => {
-    if (document.hasFocus() && !scanning) void refreshProjects(false);
+    if (document.hasFocus() && !scanning && !busyNow()) void refreshProjects(false);
   }, PROBE_MS);
 }
 
@@ -856,6 +1484,32 @@ async function bindDrop() {
   });
 }
 
+/** Closing while a run or a capture goes asks first; Unity in batch mode keeps running either way. */
+async function bindClose() {
+  if (!inTauri) return;
+  const win = getCurrentWindow();
+  let asking = false;
+  await win.onCloseRequested(async (event) => {
+    if (!busyNow()) return;
+    event.preventDefault();
+    if (asking || isDialogOpen()) return;
+    asking = true;
+    const capturing = cap.running || run?.items.some((i) => i.steps.capture.state === "run");
+    const batch = current()?.mode !== "attach";
+    const ok = await showDialog({
+      title: t("close.title"),
+      message: capturing && batch ? t("close.batch") : t("close.running"),
+      confirmLabel: t("close.quit"),
+      cancelLabel: t("close.stay"),
+      danger: true,
+    });
+    asking = false;
+    if (!ok) return;
+    if (running()) await runCancel().catch(() => false);
+    await win.destroy();
+  });
+}
+
 // ---------------------------------------------------------------- boot
 
 /** Browser preview only (README screenshots and checks). */
@@ -865,12 +1519,29 @@ function applyPreviewQuery() {
   if (tab === "closed") nav.setOpen(false);
   else if (tab) nav.show(tab);
   if (query.get("body") === "hidden") bodyOpen = false;
-  if (query.has("sample")) currentId = query.get("project") ?? currentId;
+  if (query.has("sample")) currentId = query.get("project") ?? currentId ?? "p000000000001";
   const frame = /^(\d+)x(\d+)$/.exec(query.get("frame") ?? "");
   if (frame) {
     document.body.style.width = `${frame[1]}px`;
     document.body.style.height = `${frame[2]}px`;
   }
+}
+
+let previewPicked = false;
+/** Browser preview: `?pick=2` picks the second shown prefab, `?pick=1,2,3` several. */
+function applyPreviewPick() {
+  if (inTauri || previewPicked || !scan) return;
+  previewPicked = true;
+  const pick = new URLSearchParams(location.search).get("pick");
+  if (!pick) return;
+  const order = applyFilter(scan.prefabs, filter);
+  const keys = pick
+    .split(",")
+    .map((n) => order[Number(n) - 1])
+    .filter(Boolean)
+    .map(itemKey);
+  selected = new Set(keys);
+  focusKey = anchor = keys[0] ?? null;
 }
 
 /** After the next paint. A window that is still hidden may get no animation frame: a timer ends the wait too. */
@@ -895,17 +1566,22 @@ async function boot() {
     flashStatus(t("status.saveFailed", { text: error }), 5000);
     void call("settings_get").then(receiveSettings).catch(() => {});
   });
+  gen = emptyGen(getSetting("llm.rewriter") as string);
   bindEvents();
   await loadProjects();
+  packShown = current()?.packId ?? packShown;
   render();
   requestAnimationFrame(() => requestAnimationFrame(() => app.classList.remove("no-anim")));
   // The window starts hidden; it shows once this first paint is ready (no white page flashes)
   await afterPaint();
   await call("window_ready").catch(() => {});
   await bindDrop();
+  await bindClose();
   if (currentId) void runScan(false);
   void checkRecovery();
   void checkReady(false);
+  void loadRuns();
+  onTabShown();
 }
 
 void boot();

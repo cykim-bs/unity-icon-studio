@@ -196,6 +196,12 @@ pub fn prefab_override(id: String, guid: String, patch: Map<String, Value>) -> R
     projects::set_override(&home(), &id, &guid, &patch)
 }
 
+/// The style pack a listed project uses.
+#[tauri::command]
+pub fn project_set_pack(id: String, pack_id: String) -> Result<ProjectSummary, String> {
+    projects::set_pack(&home(), &id, &pack_id)
+}
+
 #[tauri::command]
 pub fn pack_list() -> Vec<uis_core::packs::PackSummary> {
     uis_core::packs::list(&home())
@@ -474,7 +480,14 @@ pub async fn post_rerun(job: String, cand: u32, options: Map<String, Value>) -> 
 
 /// Copies the finished icons of a candidate to the export folder (never into a Unity project).
 #[tauri::command]
-pub async fn export(job: String, cand: u32, sizes: Vec<u32>, name: String, folder: Option<String>) -> Result<uis_core::export::ExportReport, String> {
+pub async fn export(
+    job: String,
+    cand: u32,
+    sizes: Vec<u32>,
+    name: String,
+    folder: Option<String>,
+    rule: Option<String>,
+) -> Result<uis_core::export::ExportReport, String> {
     blocking(move || {
         let home = home();
         let s = settings::load(&home);
@@ -490,7 +503,9 @@ pub async fn export(job: String, cand: u32, sizes: Vec<u32>, name: String, folde
             }
             icons.push((size, f));
         }
-        Ok(uis_core::export::export(&icons, Path::new(&folder), &s.export_name, &name, &s, Some(&dir)))
+        // A file name typed on the screen replaces the settings' rule for this export
+        let rule = rule.filter(|r| !r.trim().is_empty()).unwrap_or_else(|| s.export_name.clone());
+        Ok(uis_core::export::export(&icons, Path::new(&folder), &rule, &name, &s, Some(&dir)))
     })
     .await
 }
@@ -504,4 +519,170 @@ pub async fn jobs_list(limit: Option<usize>) -> Result<Vec<Value>, String> {
         Ok(uis_core::jobs::list(&home, &s, limit.unwrap_or(50)))
     })
     .await
+}
+
+// ---------------------------------------------------------------- whole runs, jobs, thumbnails
+
+use std::sync::Arc;
+use uis_core::pipeline::{RunEvent, RunItemRequest, RunReport, RunRequest};
+
+/// The stop flag of the run in progress (one at a time).
+static RUN_STOP: Mutex<Option<Arc<AtomicBool>>> = Mutex::new(None);
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunArgs {
+    id: String,
+    items: Vec<RunItemRequest>,
+    #[serde(default)]
+    note: String,
+    cli: Option<String>,
+    candidates: Option<u32>,
+    outline: Option<String>,
+    background: Option<String>,
+    #[serde(default)]
+    outline_off_ok: bool,
+    #[serde(default)]
+    no_refs: bool,
+    /// Export passing items here as they finish
+    export_dir: Option<String>,
+}
+
+/// Clears the stop flag when the run ends, however it ends.
+struct RunSlot;
+impl Drop for RunSlot {
+    fn drop(&mut self) {
+        if let Ok(mut s) = RUN_STOP.lock() {
+            *s = None;
+        }
+    }
+}
+
+/// A whole run for the picked prefabs: capture (the ones without a picture, in one request),
+/// then for each in turn prompt → rewrite → picture → post-processing → checks. Steps come
+/// through `on_event`. Earlier captures in `items[].capture` must be in the tool's folders.
+#[tauri::command]
+pub async fn run_start(args: RunArgs, on_event: tauri::ipc::Channel<RunEvent>) -> Result<RunReport, String> {
+    let Some(cap_guard) = uis_core::proc::Busy::try_take(&CAPTURING) else {
+        return Err("busy".into());
+    };
+    let Some(llm_guard) = uis_core::proc::Busy::try_take(&LLM_BUSY) else {
+        return Err("busy".into());
+    };
+    let stop = Arc::new(AtomicBool::new(false));
+    *RUN_STOP.lock().map_err(|e| e.to_string())? = Some(stop.clone());
+    blocking(move || {
+        let _slot = RunSlot;
+        let _guards = (cap_guard, llm_guard);
+        let home = home();
+        let s = settings::load(&home);
+        let entry = projects::entry(&home, &args.id)?;
+        let work = s.work_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| home.default_work_dir());
+        let mut items = args.items;
+        for it in &mut items {
+            if let Some(c) = &it.capture {
+                if !(is_inside(c, home.root()) || is_inside(c, &work)) {
+                    it.capture = None;
+                }
+            }
+        }
+        let mut post = Map::new();
+        if let Some(v) = args.outline {
+            post.insert("outline".into(), Value::String(v));
+        }
+        if let Some(v) = args.background {
+            post.insert("background".into(), Value::String(v));
+        }
+        let req = RunRequest {
+            project: PathBuf::from(&entry.path),
+            items,
+            pack_id: Some(entry.pack_id.clone()),
+            note: args.note,
+            rewriter: args.cli,
+            candidates: args.candidates,
+            post: Value::Object(post),
+            outline_off_ok: args.outline_off_ok,
+            no_refs: args.no_refs,
+            export_dir: args.export_dir.filter(|d| !d.trim().is_empty()).map(PathBuf::from),
+            ..RunRequest::default()
+        };
+        Ok(uis_core::pipeline::run(&home, &s, &req, stop, &mut |e| {
+            let _ = on_event.send(e.clone());
+        }))
+    })
+    .await
+}
+
+/// Stops the run in progress: a running Codex or Claude ends at once; a capture finishes its
+/// request first (Unity is never ended).
+#[tauri::command]
+pub fn run_cancel() -> bool {
+    match RUN_STOP.lock().ok().and_then(|s| s.clone()) {
+        Some(flag) => {
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+            true
+        }
+        None => false,
+    }
+}
+
+/// A job folder for the 「Runs」 tab: `job.json`, each post-processed candidate's report, the
+/// before/after of the prompt and the last export.
+#[tauri::command]
+pub async fn job_get(job: String) -> Result<Value, String> {
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let dir = job_folder(&home, &s, &job)?;
+        let read = |p: PathBuf| std::fs::read(p).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+        let doc = read(dir.join("job.json")).unwrap_or(Value::Null);
+        let posts: Vec<Value> = uis_core::jobs::candidates(&dir)
+            .into_iter()
+            .filter_map(|c| read(dir.join("post").join(format!("cand-{c:02}")).join("checks.json")))
+            .collect();
+        let capture = dir.join("capture").join("capture.png");
+        Ok(serde_json::json!({
+            "dir": dir.display().to_string(),
+            "job": doc,
+            "posts": posts,
+            "diff": read(dir.join("prompt").join("diff.json")),
+            "capture": capture.is_file().then(|| capture.display().to_string()),
+            "export": read(dir.join("export.json")),
+        }))
+    })
+    .await
+}
+
+/// Thumbnails (data: URLs, 128 px) of a project's prefabs that were captured before, by guid.
+#[tauri::command]
+pub async fn prefab_thumbs(id: String) -> Result<std::collections::HashMap<String, String>, String> {
+    blocking(move || {
+        let home = home();
+        let entry = projects::entry(&home, &id)?;
+        let found = uis_core::capture::thumbs(&home, Path::new(&entry.path));
+        Ok(found.into_iter().filter_map(|(g, p)| uis_core::image::png_data_url(&p).ok().map(|u| (g, u))).collect())
+    })
+    .await
+}
+
+/// The folder picker for the export folder (None: cancelled). A folder inside a Unity project
+/// comes back as an error (`insideProject:…`).
+#[tauri::command]
+pub async fn export_pick(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(folder) = picked else { return Ok(None) };
+    let path = folder.into_path().map_err(|e| format!("path:{e}"))?;
+    if let Some(why) = uis_core::export::refusal(&path, &settings::load(&home())) {
+        return Err(why);
+    }
+    Ok(Some(path.display().to_string()))
+}
+
+/// Why `folder` may not receive icons (`insideProject:…`), or None.
+#[tauri::command]
+pub fn export_check(folder: String) -> Option<String> {
+    uis_core::export::refusal(Path::new(&folder), &settings::load(&home()))
 }
