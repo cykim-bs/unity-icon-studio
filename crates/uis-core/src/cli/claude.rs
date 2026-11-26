@@ -145,28 +145,43 @@ pub fn ask_json(home: &Home, settings: &Settings, prompt: &str, schema: &str) ->
 
 /// Review of a candidate against the capture: both copied into the call's folder as `a.png` and
 /// `b.png`, read with the Read tool only.
+/// The pass/fail review of a candidate (`review.schema.json`).
 pub fn review(home: &Home, settings: &Settings, capture: &Path, candidate: &Path, prompt: &str) -> (Result<Value, Failure>, Call) {
+    review_as(home, settings, capture, candidate, prompt, crate::prompt::REVIEW_SCHEMA, "review", super::is_review_answer)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn review_as(
+    home: &Home,
+    settings: &Settings,
+    capture: &Path,
+    candidate: &Path,
+    prompt: &str,
+    schema: &str,
+    purpose: &str,
+    valid: fn(&Value) -> bool,
+) -> (Result<Value, Failure>, Call) {
     let Some(found) = find(settings).filter(|_| settings.claude.enabled) else {
         let f = Failure::new(FailKind::NotFound, "claude", "claude not found");
-        return (Err(f.clone()), call("review", None, Some(&f), None));
+        return (Err(f.clone()), call(purpose, None, Some(&f), None));
     };
     let dir = match super::temp_dir(home, "claude-review") {
         Ok(d) => d,
         Err(e) => {
             let f = Failure::new(FailKind::Spawn, "claude", e);
-            return (Err(f.clone()), call("review", None, Some(&f), None));
+            return (Err(f.clone()), call(purpose, None, Some(&f), None));
         }
     };
     let copied = std::fs::copy(capture, dir.join("a.png")).and_then(|_| std::fs::copy(candidate, dir.join("b.png")));
     let r = match copied {
         Err(e) => {
             let f = Failure::new(FailKind::Spawn, "claude", format!("copy:{e}"));
-            (Err(f.clone()), call("review", None, Some(&f), None))
+            (Err(f.clone()), call(purpose, None, Some(&f), None))
         }
-        Ok(_) => run_json(&found, settings, &dir, prompt, crate::prompt::REVIEW_SCHEMA, "Read", "review"),
+        Ok(_) => run_json(&found, settings, &dir, prompt, schema, "Read", purpose),
     };
     let r = match r {
-        (Ok(v), c) if !super::is_review_answer(&v) => {
+        (Ok(v), c) if !valid(&v) => {
             let f = Failure::new(FailKind::BadJson, "claude", "not a review answer");
             (Err(f), c)
         }

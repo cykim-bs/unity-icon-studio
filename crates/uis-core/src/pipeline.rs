@@ -20,6 +20,7 @@ use crate::export::{self, ExportReport};
 use crate::generate::{self, GenerateRequest};
 use crate::home::Home;
 use crate::jobs::{self, PostJobReport};
+use crate::review;
 use crate::settings::Settings;
 
 pub const RUN_SCHEMA: &str = "unity-icon-studio.run/1";
@@ -61,6 +62,12 @@ pub struct RunRequest {
     /// Tests: a made-up CODEX_HOME, shorter capture limits
     pub codex_home: Option<PathBuf>,
     pub batch_timeout: Option<Duration>,
+    /// `strict` or `stylized` (None: the pack's, else the settings')
+    pub fidelity: Option<String>,
+    /// `off`, `claude`, `codex` or `both` (None: settings `llm.fidelityReview`)
+    pub fidelity_review: Option<String>,
+    /// Pictures with corrections after a failed fidelity check (None: settings)
+    pub fidelity_retries: Option<u32>,
 }
 
 /// A step of a run.
@@ -93,6 +100,9 @@ pub struct RunCandidate {
     /// Checks passed (of all, every size)
     pub passed: usize,
     pub checked: usize,
+    /// 1 for the first pictures, 2 and more for tries with corrections
+    pub attempt: u32,
+    pub correction: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -117,6 +127,8 @@ pub struct RunItem {
     pub outline_kept: bool,
     pub export: Option<ExportReport>,
     pub elapsed_ms: u64,
+    /// `strict` or `stylized`
+    pub fidelity: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,8 +186,16 @@ fn score(p: &PostJobReport) -> (usize, usize) {
 
 /// The recommended candidate of an item (see [`RunItem::best`]).
 pub fn best_candidate(cands: &[RunCandidate]) -> Option<u32> {
-    let rows: Vec<(u32, bool, usize)> = cands.iter().filter_map(|c| c.post.as_ref().map(|p| (c.cand, p.pass, c.passed))).collect();
+    // A strict picture that keeps the capture beats one that passes more of the other checks
+    let rows: Vec<(u32, bool, usize)> =
+        cands.iter().filter_map(|c| c.post.as_ref().map(|p| (c.cand, p.pass, c.passed + if fidelity_ok(p) { 1000 } else { 0 }))).collect();
     pick_best(&rows)
+}
+
+/// Strict and nothing against fidelity: hard items passed, every review that answered passed, a
+/// suspect picture was reviewed. Stylized pictures count as fine.
+fn fidelity_ok(p: &PostJobReport) -> bool {
+    p.fidelity_mode != "strict" || !fidelity_failed(p)
 }
 
 /// (candidate, passed every check, checks passed) of the post-processed candidates.
@@ -200,6 +220,22 @@ fn note_job(job_dir: &Path, project: &Path, run_id: &str, item: &RunItem) {
         o.insert("state".into(), json!(item.state));
         o.insert("failedStage".into(), json!(item.stage));
         o.insert("runError".into(), json!(item.error));
+        let fid: Vec<Value> = item
+            .candidates
+            .iter()
+            .map(|c| {
+                let p = c.post.as_ref();
+                json!({
+                    "cand": c.cand,
+                    "attempt": c.attempt,
+                    "correction": c.correction,
+                    "pass": p.map(|p| p.pass),
+                    "fidelity": p.and_then(|p| p.fidelity.as_ref()).map(|f| json!({ "pass": f.report.pass, "suspect": f.suspect, "failed": f.report.failed, "metrics": f.metrics })),
+                    "reviews": p.map(|p| p.reviews.iter().map(|r| json!({ "cli": r.cli, "ok": r.ok, "pass": r.pass, "failing": r.failing, "notes": r.notes })).collect::<Vec<_>>()),
+                })
+            })
+            .collect();
+        o.insert("fidelityChecks".into(), json!(fid));
     }
     let _ = std::fs::write(&file, serde_json::to_string_pretty(&doc).unwrap_or_default());
 }
@@ -259,6 +295,7 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
             outline_kept: false,
             export: None,
             elapsed_ms: 0,
+            fidelity: String::new(),
         })
         .collect();
 
@@ -336,6 +373,7 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
             candidates: req.candidates,
             no_pack_refs: req.no_refs,
             codex_home: req.codex_home.clone(),
+            fidelity: req.fidelity.clone(),
             ..GenerateRequest::default()
         };
         let mut last_stage = String::new();
@@ -347,6 +385,11 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
         });
         it.job_dir = Some(g.job_dir.clone());
         it.rewrite = g.rewrite.clone();
+        it.fidelity = g.fidelity.clone();
+        let reviewer = req.fidelity_review.clone().unwrap_or_else(|| settings.llm.fidelity_review.clone());
+        let review_on = it.fidelity == "strict" && reviewer != "off";
+        let allowed = generate::allowed_additions(Path::new(&g.job_dir));
+        let capture_png = PathBuf::from(&g.job_dir).join("capture").join("capture.png");
         let cancelled_now = stopped();
         if let Some(e) = &g.error {
             it.state = if cancelled_now { "cancelled".into() } else { "failed".into() };
@@ -368,7 +411,7 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
         }
         for (ci, c) in g.candidates.iter().enumerate() {
             let cand = ci as u32 + 1;
-            let mut rc = RunCandidate { cand, ok: c.ok, raw: c.raw.clone(), failure: c.failure.clone(), post: None, post_error: None, passed: 0, checked: 0 };
+            let mut rc = RunCandidate { cand, ok: c.ok, raw: c.raw.clone(), failure: c.failure.clone(), post: None, post_error: None, passed: 0, checked: 0, attempt: 1, correction: None };
             if c.ok {
                 emit("generate", "ok", Some(&asset), index, format!("{cand}"));
                 if stopped() {
@@ -377,8 +420,15 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
                 }
                 emit("post", "start", Some(&asset), index, format!("{cand}"));
                 match jobs::post_candidate(home, settings, Path::new(&g.job_dir), cand, &post) {
-                    Ok(p) => {
+                    Ok(mut p) => {
                         emit("post", "ok", Some(&asset), index, format!("{cand}"));
+                        if review_on && !stopped() {
+                            emit("review", "start", Some(&asset), index, format!("{cand}"));
+                            p.reviews = review::reviews(home, settings, &reviewer, &capture_png, Path::new(&p.raw), &allowed);
+                            p.settle();
+                            let _ = p.save();
+                            emit("review", if p.reviews.iter().all(|r| r.ok && r.pass) { "ok" } else { "fail" }, Some(&asset), index, review_line(&p));
+                        }
                         let (a, b) = score(&p);
                         rc.passed = a;
                         rc.checked = b;
@@ -397,6 +447,69 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
                 }
             }
             it.candidates.push(rc);
+        }
+        // Strict pictures that fail their fidelity checks: one more try with corrections
+        let retries = req.fidelity_retries.unwrap_or(settings.generate.fidelity_retries).min(2);
+        let mut attempt = 1u32;
+        while it.fidelity == "strict" && attempt <= retries && halt.is_none() && !stopped() && it.error.is_none() {
+            let best_now = best_candidate(&it.candidates).and_then(|b| it.candidates.iter().find(|c| c.cand == b));
+            let Some(p) = best_now.and_then(|c| c.post.as_ref()) else { break };
+            if p.pass || !fidelity_failed(p) {
+                break;
+            }
+            let Some(text) = review::correction(&p.reviews, &p.failed_checks()) else { break };
+            attempt += 1;
+            let cand = it.candidates.iter().map(|c| c.cand).max().unwrap_or(0) + 1;
+            emit("retry", "start", Some(&asset), index, format!("{cand}"));
+            emit("generate", "start", Some(&asset), index, format!("{cand}"));
+            let r = crate::proc::with_cancel(cancel.clone(), || generate::retry_candidate(home, settings, Path::new(&g.job_dir), cand, &text, req.codex_home.clone()));
+            let mut rc = RunCandidate { cand, ok: false, raw: None, failure: None, post: None, post_error: None, passed: 0, checked: 0, attempt, correction: Some(text.clone()) };
+            match r {
+                Err(e) => {
+                    emit("generate", "fail", Some(&asset), index, e.clone());
+                    rc.post_error = Some(e);
+                    it.candidates.push(rc);
+                    break;
+                }
+                Ok(img) => {
+                    rc.ok = img.ok;
+                    rc.raw = img.raw.clone();
+                    rc.failure = img.failure.clone();
+                    if let Some(f) = &img.failure {
+                        emit("generate", "fail", Some(&asset), index, f.kind.code().to_string());
+                        if matches!(f.kind, FailKind::Limit | FailKind::Auth | FailKind::NotFound) {
+                            halt = Some(f.kind.code().to_string());
+                        }
+                        it.candidates.push(rc);
+                        break;
+                    }
+                    emit("generate", "ok", Some(&asset), index, format!("{cand}"));
+                    emit("post", "start", Some(&asset), index, format!("{cand}"));
+                    match jobs::post_candidate(home, settings, Path::new(&g.job_dir), cand, &post) {
+                        Ok(mut p) => {
+                            emit("post", "ok", Some(&asset), index, format!("{cand}"));
+                            if review_on && !stopped() {
+                                emit("review", "start", Some(&asset), index, format!("{cand}"));
+                                p.reviews = review::reviews(home, settings, &reviewer, &capture_png, Path::new(&p.raw), &allowed);
+                                p.settle();
+                                let _ = p.save();
+                                emit("review", if p.reviews.iter().all(|r| r.ok && r.pass) { "ok" } else { "fail" }, Some(&asset), index, review_line(&p));
+                            }
+                            let (a, b) = score(&p);
+                            rc.passed = a;
+                            rc.checked = b;
+                            emit("check", if p.pass { "ok" } else { "fail" }, Some(&asset), index, format!("{a}/{b}"));
+                            rc.post = Some(p);
+                        }
+                        Err(e) => {
+                            emit("post", "fail", Some(&asset), index, e.clone());
+                            rc.post_error = Some(e);
+                        }
+                    }
+                    it.candidates.push(rc);
+                }
+            }
+            emit("retry", "ok", Some(&asset), index, format!("{cand}"));
         }
         it.best = best_candidate(&it.candidates);
         let best = it.best.and_then(|b| it.candidates.iter().find(|c| c.cand == b));
@@ -457,6 +570,21 @@ pub fn run_with(home: &Home, settings: &Settings, req: &RunRequest, llm: &dyn Te
     emit("done", done_state, None, 0, String::new());
     write_run(home, settings, &report);
     report
+}
+
+/// True when a strict picture failed for fidelity reasons (hard fidelity items, a review, or a
+/// suspect picture nobody reviewed); other check failures are not fixed by a retry.
+fn fidelity_failed(p: &PostJobReport) -> bool {
+    p.fidelity_mode == "strict" && (p.fidelity.as_ref().is_some_and(|f| !f.report.pass) || p.reviews.iter().any(|r| r.ok && !r.pass) || p.needs_review())
+}
+
+/// Short line for the review event: `codex:fail(2) claude:ok`.
+fn review_line(p: &PostJobReport) -> String {
+    p.reviews
+        .iter()
+        .map(|r| if !r.ok { format!("{}:error", r.cli) } else if r.pass { format!("{}:ok", r.cli) } else { format!("{}:fail({})", r.cli, r.failing.len()) })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// `<work>\runs\<run id>.json`: what a run did (the screen's 「Runs」 list reads the job folders).

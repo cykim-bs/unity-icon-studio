@@ -37,9 +37,12 @@ commands:
   run --project <folder> --prefab <asset> [<asset>...] [--note <text>] [--cli claude|codex]
       [--mode auto|attach|batch] [--candidates N] [--outline code|model|none]
       [--background auto|key] [--outline-off-ok] [--no-pack-refs] [--to <folder> [--sizes 256,512] [--export-failing]]
-      [--pack <id>] [--json]
+      [--pack <id>] [--fidelity strict|stylized] [--review off|claude|codex|both] [--retries N]
+      [--capture <png> --kind <kind>] [--json]
                        the whole run: capture → prompt → rewrite → pictures → post-processing →
-                       checks [→ export]; steps go to stderr (counts against the image limit)
+                       checks → fidelity review [→ retry with corrections] [→ export]; steps go to
+                       stderr (counts against the image limit). --capture uses that picture instead
+                       of capturing (one prefab)
   review --capture <png> --candidate <png> --kind <kind> [--cli claude|codex] [--json]
                        ask an LLM whether a picture is usable ({pass, issues})
   post --job <folder> [--cand N] [--set key=value...] [--json]
@@ -53,6 +56,9 @@ commands:
   export --job <folder> --to <folder> [--cand N] [--sizes 256,512,1024] [--name <prefab>] [--rule <rule>]
                        copy finished icons out (never into a Unity project)
   jobs [--limit N]     job folders, newest first
+  fidelity <capture.png> <generated.png> [--map <png>] [--review claude|codex|both] [--allow <text>...] [--json]
+                       does the picture keep the capture's parts and add nothing (strict limits);
+                       --review also asks an LLM to list added, resized and missing parts
   hub [--json]         the projects Unity Hub lists
   packs [--json]       style packs (the default one and local ones)
   home [--json]        the tool's home folder and settings file
@@ -77,7 +83,8 @@ impl Args {
                 "--pack" | "--project" | "--mode" | "--out" | "--kind" | "--note" | "--cli" | "--refs" | "--yaw"
                 | "--pitch" | "--outline" | "--background" | "--input" | "--ref" | "--candidates"
                 | "--ignore-user-config" | "--name" | "--capture" | "--candidate" | "--set" | "--raw" | "--job" | "--cand"
-                | "--to" | "--sizes" | "--spec" | "--title" | "--rule" | "--limit" => {
+                | "--to" | "--sizes" | "--spec" | "--title" | "--rule" | "--limit" | "--map" | "--fidelity" | "--review"
+                | "--retries" | "--allow" => {
                     if let Some(v) = it.next() {
                         out.values.push((a, v));
                     }
@@ -132,6 +139,7 @@ fn main() {
         Some("board") => post_cmds::board_cmd(&args),
         Some("export") => post_cmds::export_cmd(&args),
         Some("jobs") => post_cmds::jobs_cmd(&args),
+        Some("fidelity") => post_cmds::fidelity_cmd(&args),
         Some("hub") => {
             print_value(&serde_json::to_value(uis_core::project::hub_projects()).unwrap_or_default(), true);
             0
@@ -514,6 +522,7 @@ fn generate_cmd(args: &Args) -> i32 {
         out_dir: args.value("--out").map(PathBuf::from),
         prompt_only: args.has("--prompt-only"),
         codex_home: None,
+        fidelity: args.value("--fidelity").map(str::to_string),
     };
     let r = uis_core::generate::generate(&home, &s, &req);
     let mut posted = Vec::new();
@@ -631,9 +640,13 @@ fn run_cmd(args: &Args) -> i32 {
         post.insert("background".into(), json!(v));
     }
     let sizes = args.value("--sizes").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect::<Vec<u32>>());
+    let capture = args.value("--capture").map(PathBuf::from);
     let req = uis_core::pipeline::RunRequest {
         project,
-        items: items.into_iter().map(|a| uis_core::pipeline::RunItemRequest { asset: a, ..Default::default() }).collect(),
+        items: items
+            .into_iter()
+            .map(|a| uis_core::pipeline::RunItemRequest { asset: a, capture: capture.clone(), kind: args.value("--kind").map(str::to_string) })
+            .collect(),
         pack_id: args.value("--pack").map(str::to_string).or_else(|| listed.map(|p| p.pack_id.clone())),
         mode: args.value("--mode").map(str::to_string),
         note: args.value("--note").unwrap_or_default().to_string(),
@@ -645,6 +658,9 @@ fn run_cmd(args: &Args) -> i32 {
         export_dir: args.value("--to").map(PathBuf::from),
         export_sizes: sizes,
         export_failing: args.has("--export-failing"),
+        fidelity: args.value("--fidelity").map(str::to_string),
+        fidelity_review: args.value("--review").map(str::to_string),
+        fidelity_retries: args.value("--retries").and_then(|v| v.parse().ok()),
         ..Default::default()
     };
     let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));

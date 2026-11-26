@@ -653,21 +653,36 @@ fn clean(path: &Path, chome: &Path, thread: Option<&str>) -> bool {
 }
 
 /// Review of a candidate against the capture (`{pass, issues}`), pictures given with `-i`.
+/// The pass/fail review of a candidate (`review.schema.json`).
 pub fn review(home: &Home, settings: &Settings, capture: &Path, candidate: &Path, prompt: &str) -> (Result<Value, Failure>, Call) {
+    review_as(home, settings, capture, candidate, prompt, crate::prompt::REVIEW_SCHEMA, "review", super::is_review_answer)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn review_as(
+    home: &Home,
+    settings: &Settings,
+    capture: &Path,
+    candidate: &Path,
+    prompt: &str,
+    schema: &str,
+    purpose: &str,
+    valid: fn(&Value) -> bool,
+) -> (Result<Value, Failure>, Call) {
     let Some(found) = find(home, settings) else {
         let f = Failure::new(FailKind::NotFound, "codex", "codex not found");
-        return (Err(f.clone()), call("review", None, Some(&f)));
+        return (Err(f.clone()), call(purpose, None, Some(&f)));
     };
     let dir = match super::temp_dir(home, "codex-review") {
         Ok(d) => d,
         Err(e) => {
             let f = Failure::new(FailKind::Spawn, "codex", e);
-            return (Err(f.clone()), call("review", None, Some(&f)));
+            return (Err(f.clone()), call(purpose, None, Some(&f)));
         }
     };
     let schema_file = dir.join("schema.json");
     let out_file = dir.join("out.json");
-    let _ = std::fs::write(&schema_file, crate::prompt::REVIEW_SCHEMA);
+    let _ = std::fs::write(&schema_file, schema);
     let cmd = exec_args(command(&found), settings, settings.codex.ignore_user_config, &dir)
         .args(["-c", "model_reasoning_effort=\"low\"", "-i"])
         .arg(capture.as_os_str())
@@ -685,21 +700,21 @@ pub fn review(home: &Home, settings: &Settings, capture: &Path, candidate: &Path
     let result = match proc::run(&cmd) {
         Err(e) => {
             let f = Failure::new(FailKind::Spawn, "codex", e);
-            (Err(f.clone()), call("review", None, Some(&f)))
+            (Err(f.clone()), call(purpose, None, Some(&f)))
         }
         Ok(out) => {
             let events = errors::parse_events(&out.stdout);
             let last = std::fs::read_to_string(&out_file).unwrap_or_default();
             match errors::classify_codex(&out, &events, &last, false, false) {
                 Some(f) => {
-                    let c = call("review", Some(&out), Some(&f));
+                    let c = call(purpose, Some(&out), Some(&f));
                     (Err(f), c)
                 }
                 None => match serde_json::from_str::<Value>(last.trim()) {
-                    Ok(v) if super::is_review_answer(&v) => (Ok(v), call("review", Some(&out), None)),
+                    Ok(v) if valid(&v) => (Ok(v), call(purpose, Some(&out), None)),
                     _ => {
                         let f = Failure::new(FailKind::BadJson, "codex", "no JSON answer");
-                        let c = call("review", Some(&out), Some(&f));
+                        let c = call(purpose, Some(&out), Some(&f));
                         (Err(f), c)
                     }
                 },

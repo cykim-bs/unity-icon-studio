@@ -49,6 +49,9 @@ impl Bed {
         for name in ["codex", "claude", "codex-code-mode-host", "unity", "Unity"] {
             std::fs::copy(&stub, bin.join(format!("{name}.exe"))).unwrap();
         }
+        // Pictures are the capture keyed out of its white (a faithful "repaint"), unless a test says
+        let scenario = if scenario.contains("codex_image=") { scenario.to_string() } else { format!("codex_image=copy
+{scenario}") };
         std::fs::write(bin.join("stub-scenario.txt"), scenario).unwrap();
         let home = Home::at(base.join("home"));
         home.ensure().unwrap();
@@ -131,7 +134,10 @@ fn two_items_from_capture_to_export() {
         assert_eq!(job["runId"], json!(r.run_id));
         assert_eq!(
             stages(&events, items[i]),
-            ["prompt:start", "prompt:ok", "rewrite:start", "rewrite:ok", "generate:start", "generate:ok", "post:start", "post:ok", if it.pass { "check:ok" } else { "check:fail" }, "export:start", "export:ok"]
+            [
+                "prompt:start", "prompt:ok", "rewrite:start", "rewrite:ok", "generate:start", "generate:ok", "post:start", "post:ok",
+                "review:start", "review:ok", if it.pass { "check:ok" } else { "check:fail" }, "export:start", "export:ok"
+            ]
         );
     }
     assert!(bed.base.join("out/icon_Crate.png").is_file());
@@ -232,4 +238,93 @@ fn a_stop_ends_the_picture_and_cancels_the_rest() {
     assert_eq!(r.items[0].state, "cancelled");
     assert_eq!(r.items[1].state, "cancelled");
     assert_eq!(bed.calls("codex"), 1);
+}
+
+/// Strict: a picture with an added sparkle fails its fidelity review and one more try with the
+/// correction fixes it; the retry is recorded in job.json.
+#[test]
+fn strict_sparkle_is_fixed_by_one_retry() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let bed = Bed::new("retry", "codex_image=copy_sparkle_once
+fidelity=added_once
+");
+    let mut req = bed.request(&["Assets/Buildings/House.prefab"], "");
+    req.export_dir = None;
+    let (r, events) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let it = &r.items[0];
+    assert_eq!(it.fidelity, "strict");
+    assert_eq!(it.candidates.len(), 2, "{}", serde_json::to_string_pretty(&r).unwrap());
+    let first = it.candidates[0].post.as_ref().unwrap();
+    assert!(!first.pass);
+    let f = first.fidelity.as_ref().unwrap();
+    assert!(f.suspect || !f.report.pass, "the sparkle shows in the pixels too: {:?}", f.metrics);
+    assert_eq!(first.reviews.len(), 1);
+    assert_eq!(first.reviews[0].cli, "codex");
+    assert!(!first.reviews[0].pass && first.reviews[0].failing[0].kind == "added");
+    let second = &it.candidates[1];
+    assert_eq!(second.attempt, 2);
+    let corr = second.correction.as_deref().unwrap();
+    assert!(corr.starts_with("Corrections from the previous try: do not add Yellow four-point sparkle (above the roof)"), "{corr}");
+    let p2 = second.post.as_ref().unwrap();
+    assert!(p2.reviews[0].pass, "{:?}", p2.reviews[0].failing);
+    assert!(p2.fidelity.as_ref().unwrap().report.pass, "{:?}", p2.fidelity);
+    assert_eq!(it.best, Some(2));
+    let st = stages(&events, "Assets/Buildings/House.prefab");
+    assert!(st.contains(&"retry:start".to_string()) && st.contains(&"retry:ok".to_string()), "{st:?}");
+    // The retry's prompt is the sent one plus the correction at the end of SUBJECT
+    let job = Path::new(it.job_dir.as_ref().unwrap());
+    let retry_prompt = std::fs::read_to_string(job.join("prompt/final-cand-02.txt")).unwrap();
+    let fixed = std::fs::read_to_string(job.join("prompt/final.txt")).unwrap();
+    assert!(retry_prompt.contains(corr) && !fixed.contains("Corrections"));
+    let doc: Value = serde_json::from_slice(&std::fs::read(job.join("job.json")).unwrap()).unwrap();
+    assert_eq!(doc["fidelity"], json!("strict"));
+    assert_eq!(doc["fidelityChecks"].as_array().unwrap().len(), 2);
+    assert_eq!(doc["fidelityChecks"][1]["attempt"], json!(2));
+    assert_eq!(doc["candidates"][1]["retryOf"], json!(1));
+    assert!(job.join("post/cand-01/fidelity-map.png").is_file());
+}
+
+/// Strict with both reviewers: a sparkle that stays fails after the one retry; both CLIs reviewed.
+#[test]
+fn strict_failing_after_the_retry_is_not_exported() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let bed = Bed::new("stillbad", "codex_image=copy_sparkle
+fidelity=added
+");
+    let mut req = bed.request(&["Assets/Props/Crate.prefab"], "");
+    req.fidelity_review = Some("both".into());
+    let (r, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let it = &r.items[0];
+    assert_eq!(it.candidates.len(), 2);
+    assert!(!it.pass);
+    assert!(it.export.is_none(), "a failing icon is not exported");
+    for c in &it.candidates {
+        let p = c.post.as_ref().unwrap();
+        assert_eq!(p.reviews.iter().map(|r| r.cli.as_str()).collect::<Vec<_>>(), ["claude", "codex"]);
+        assert!(p.reviews.iter().all(|r| r.ok && !r.pass));
+    }
+    assert!(bed.calls("claude") >= 2 && bed.calls("codex") >= 4, "claude {} codex {}", bed.calls("claude"), bed.calls("codex"));
+}
+
+/// Stylized: no fidelity review and no retry; no retries setting: no retry either.
+#[test]
+fn stylized_and_zero_retries_skip_the_loop() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let bed = Bed::new("stylized", "codex_image=copy_sparkle
+fidelity=added
+");
+    let mut req = bed.request(&["Assets/Props/Crate.prefab"], "");
+    req.export_dir = None;
+    req.fidelity = Some("stylized".into());
+    let (r, events) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    assert_eq!(r.items[0].fidelity, "stylized");
+    assert_eq!(r.items[0].candidates.len(), 1);
+    assert!(r.items[0].candidates[0].post.as_ref().unwrap().reviews.is_empty());
+    assert!(!stages(&events, "Assets/Props/Crate.prefab").iter().any(|s| s.starts_with("review") || s.starts_with("retry")));
+    let mut req = bed.request(&["Assets/Props/Crate.prefab"], "");
+    req.export_dir = None;
+    req.fidelity_retries = Some(0);
+    let (r, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    assert_eq!(r.items[0].candidates.len(), 1);
+    assert!(!r.items[0].pass);
 }

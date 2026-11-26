@@ -77,6 +77,7 @@ pub fn post_cmd(args: &Args) -> i32 {
         pack_id: args.value("--pack").unwrap_or(uis_core::packs::DEFAULT_ID).into(),
         out_dir: PathBuf::from(out),
         overrides: over,
+        fidelity: args.value("--fidelity").unwrap_or("").to_string(),
     };
     match uis_core::jobs::post_run(&home, &s, &req) {
         Ok(r) => {
@@ -249,6 +250,77 @@ pub fn export_cmd(args: &Args) -> i32 {
     let r = uis_core::export::export(&icons, Path::new(to), &rule, &name, &s, Some(&job));
     print_value(&serde_json::to_value(&r).unwrap_or_default(), true);
     if r.ok {
+        0
+    } else {
+        1
+    }
+}
+
+/// `uis fidelity <capture.png> <generated.png> [--map <png>]`: how faithful a picture is.
+pub fn fidelity_cmd(args: &Args) -> i32 {
+    let (Some(cap), Some(gen)) = (args.positional.get(1), args.positional.get(2)) else {
+        eprintln!("uis fidelity: give a capture and a generated picture\n\n{USAGE}");
+        return 2;
+    };
+    let open = |p: &str| uis_core::post::raster::Raster::open(Path::new(p));
+    let (cap, gen) = match (open(cap), open(gen)) {
+        (Ok(a), Ok(b)) => (a, b),
+        (Err(e), _) | (_, Err(e)) => return fail(args, &e),
+    };
+    let (m, map) = uis_core::fidelity::measure(&cap, &gen);
+    let limits = uis_core::packs::Pack::builtin().doc["checks"]["strict"].clone();
+    let c = |img: &uis_core::post::raster::Raster| {
+        let x = uis_core::checks::measure(img, [0.459, 0.216, 0.098]);
+        [x.saturation, x.value]
+    };
+    let (report, suspect) = uis_core::fidelity::check(&m, c(&cap), c(&gen), &limits);
+    if let Some(p) = args.value("--map") {
+        if let Err(e) = map.save(Path::new(p)) {
+            return fail(args, &e);
+        }
+    }
+    let reviews = match args.value("--review") {
+        Some(which) => {
+            let home = Home::resolve();
+            let _ = home.ensure();
+            let s = uis_core::settings::load(&home);
+            let allowed = args.all("--allow");
+            uis_core::review::reviews(&home, &s, which, Path::new(&args.positional[1]), Path::new(&args.positional[2]), &allowed)
+        }
+        None => Vec::new(),
+    };
+    if !args.json {
+        for r in &reviews {
+            let ms = r.call.as_ref().map(|c| c.elapsed_ms).unwrap_or(0);
+            let list = |v: &[uis_core::review::Finding]| v.iter().map(|f| format!("{} {} [{}]", f.kind, f.what, f.severity)).collect::<Vec<_>>().join("; ");
+            println!(
+                "review {}: {} {} ms  failing: {}  notes: {}{}",
+                r.cli,
+                if !r.ok { "ERROR" } else if r.pass { "pass" } else { "fail" },
+                ms,
+                list(&r.failing),
+                list(&r.notes),
+                r.failure.as_ref().map(|f| format!("  ({})", f.code())).unwrap_or_default()
+            );
+        }
+    }
+    if args.json {
+        print_value(&json!({ "metrics": m, "pass": report.pass, "suspect": suspect, "failed": report.failed, "items": report.items, "reviews": reviews }), true);
+    } else {
+        println!(
+            "{}{}  profile {:.4}  foreignBlobs {}  foreign {:.3}  outsideParts {}  outside {:.3}  missing {:.3}  failed {:?}",
+            if report.pass { "PASS" } else { "FAIL" },
+            if suspect { " (suspect)" } else { "" },
+            m.profile,
+            m.foreign_blobs,
+            m.foreign,
+            m.outside_parts,
+            m.outside,
+            m.missing,
+            report.failed
+        );
+    }
+    if report.pass {
         0
     } else {
         1

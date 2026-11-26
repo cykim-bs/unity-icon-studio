@@ -36,9 +36,53 @@ pub struct PostJobReport {
     pub post: PostReport,
     pub generated: GenerateChecks,
     pub sizes: Vec<SizeResult>,
-    /// Every size passed its checks
+    /// `strict` or `stylized` (empty without a capture)
+    #[serde(default)]
+    pub fidelity_mode: String,
+    /// Fidelity to the capture (strict: its hard items decide with the sizes' checks)
+    pub fidelity: Option<crate::fidelity::FidelityReport>,
+    /// Fidelity reviews (filled by the run after post-processing)
+    #[serde(default)]
+    pub reviews: Vec<crate::review::FidelityReview>,
+    /// Every size passed its checks (strict: and the fidelity checks, and the reviews)
     pub pass: bool,
     pub elapsed_ms: u64,
+}
+
+impl PostJobReport {
+    /// Strict and suspect (foreign colors or outside parts) with no review that answered.
+    pub fn needs_review(&self) -> bool {
+        self.fidelity_mode == "strict" && self.fidelity.as_ref().is_some_and(|f| f.suspect) && !self.reviews.iter().any(|r| r.ok)
+    }
+
+    /// The pass after the reviews: sizes, the fidelity's hard items, every review that answered,
+    /// and a suspect picture needs at least one review that answered.
+    pub fn settle(&mut self) {
+        let sizes = self.sizes.iter().all(|s| s.checks.pass);
+        if self.fidelity_mode != "strict" {
+            self.pass = sizes;
+            return;
+        }
+        let hard = self.fidelity.as_ref().is_none_or(|f| f.report.pass);
+        let answered: Vec<&crate::review::FidelityReview> = self.reviews.iter().filter(|r| r.ok).collect();
+        let suspect = self.fidelity.as_ref().is_some_and(|f| f.suspect);
+        self.pass = sizes && hard && answered.iter().all(|r| r.pass) && (!suspect || !answered.is_empty());
+    }
+
+    /// Items that failed: sizes' checks and the fidelity checks (ids).
+    pub fn failed_checks(&self) -> Vec<String> {
+        let mut out: Vec<String> = self.sizes.iter().flat_map(|s| s.checks.failed.iter().cloned()).collect();
+        if let Some(f) = &self.fidelity {
+            out.extend(f.report.failed.iter().cloned());
+        }
+        out
+    }
+
+    /// Writes the report back to `checks.json` (after reviews).
+    pub fn save(&self) -> Result<(), String> {
+        let dir = Path::new(&self.master).parent().map(Path::to_path_buf).unwrap_or_default();
+        write_json(&dir.join("checks.json"), self)
+    }
 }
 
 /// What a post-processing run needs when there is no job folder (tuning, the command line).
@@ -51,6 +95,8 @@ pub struct PostRequest {
     pub out_dir: PathBuf,
     /// Laid over the pack's and the settings' values
     pub overrides: Value,
+    /// `strict`, `stylized` or empty (no fidelity checks)
+    pub fidelity: String,
 }
 
 /// The options for a kind: the pack's values, then the settings (outline, background, sizes,
@@ -80,10 +126,26 @@ pub fn post_run(home: &Home, settings: &Settings, req: &PostRequest) -> Result<P
     std::fs::create_dir_all(&req.out_dir).map_err(|e| format!("write:{e}"))?;
     let master = req.out_dir.join("master-1024.png");
     out.master.save(&master)?;
-    let ranges = pack.checks_for(&req.kind);
+    let mut ranges = pack.checks_for(&req.kind);
     let color = post::raster::parse_hex(&opts.outline_color).unwrap_or([0.459, 0.216, 0.098]);
     let capture = req.capture.as_ref().filter(|p| p.is_file()).map(|p| Raster::open(p)).transpose()?;
-    let generated = checks::check_generated(&out.source, out.report.alpha_source == "native", capture.as_ref(), &ranges, color);
+    let strict = req.fidelity == "strict" && capture.is_some();
+    let limits = pack.doc.pointer("/checks/strict").cloned().unwrap_or(Value::Null);
+    let mut gen_ranges = ranges.clone();
+    if strict {
+        // The capture's own colors are the target: absolute color ranges only show values, the
+        // fidelity checks compare with the capture; the silhouette must match closely
+        if let Some(o) = ranges.as_object_mut() {
+            o.remove("saturation");
+            o.remove("value");
+        }
+        if let (Some(o), Some(iou)) = (gen_ranges.as_object_mut(), limits.get("iouMin")) {
+            o.insert("iouMin".into(), iou.clone());
+            o.remove("saturation");
+            o.remove("value");
+        }
+    }
+    let generated = checks::check_generated(&out.source, out.report.alpha_source == "native", capture.as_ref(), &gen_ranges, color);
     let mut sizes = Vec::new();
     for (size, img) in &out.icons {
         let path = req.out_dir.join(format!("icon-{size}.png"));
@@ -92,8 +154,23 @@ pub fn post_run(home: &Home, settings: &Settings, req: &PostRequest) -> Result<P
         let report = checks::check_file(&path, &ranges, &opts.outline_color, opts.outline == "code")?;
         sizes.push(SizeResult { size: *size, path: path.display().to_string(), checks: report });
     }
+    let fidelity = match (&capture, req.fidelity.is_empty()) {
+        (Some(cap), false) => {
+            let (m, map) = crate::fidelity::measure(cap, &out.source);
+            let sv = |img: &Raster| {
+                let x = checks::measure(img, color);
+                [x.saturation, x.value]
+            };
+            let (cap_c, gen_c) = (sv(cap), sv(&out.source));
+            let (report, suspect) = crate::fidelity::check(&m, cap_c, gen_c, &limits);
+            let map_path = req.out_dir.join("fidelity-map.png");
+            let map_saved = map.save(&map_path).ok().map(|_| map_path.display().to_string());
+            Some(crate::fidelity::FidelityReport { metrics: m, report, suspect, capture_color: cap_c, generated_color: gen_c, map: map_saved })
+        }
+        _ => None,
+    };
     let pass = sizes.iter().all(|s| s.checks.pass);
-    let report = PostJobReport {
+    let mut report = PostJobReport {
         ok: true,
         job_dir: req.out_dir.display().to_string(),
         candidate: 0,
@@ -105,9 +182,17 @@ pub fn post_run(home: &Home, settings: &Settings, req: &PostRequest) -> Result<P
         post: out.report,
         generated,
         sizes,
+        fidelity_mode: if capture.is_some() { req.fidelity.clone() } else { String::new() },
+        fidelity,
+        reviews: Vec::new(),
         pass,
         elapsed_ms: started.elapsed().as_millis() as u64,
     };
+    report.settle();
+    if strict && report.fidelity.as_ref().is_some_and(|f| f.suspect) {
+        // Without a review yet a suspect picture is not a pass
+        report.pass = false;
+    }
     write_json(&req.out_dir.join("options.json"), &opts)?;
     write_json(&req.out_dir.join("checks.json"), &report)?;
     Ok(report)
@@ -121,6 +206,7 @@ pub fn post_candidate(home: &Home, settings: &Settings, job_dir: &Path, cand: u3
         .and_then(|b| serde_json::from_slice(&b).ok())
         .ok_or_else(|| "noJob".to_string())?;
     let kind = job.get("kind").and_then(Value::as_str).unwrap_or("generic").to_string();
+    let fidelity = job.get("fidelity").and_then(Value::as_str).unwrap_or("stylized").to_string();
     let pack_id = job.get("packId").and_then(Value::as_str).unwrap_or(packs::DEFAULT_ID).to_string();
     let name = format!("cand-{cand:02}");
     let raw = job_dir.join("gen").join(&name).join("raw.png");
@@ -134,6 +220,7 @@ pub fn post_candidate(home: &Home, settings: &Settings, job_dir: &Path, cand: u3
         pack_id,
         out_dir: job_dir.join("post").join(&name),
         overrides: overrides.clone(),
+        fidelity,
     };
     let mut r = post_run(home, settings, &req)?;
     r.candidate = cand;

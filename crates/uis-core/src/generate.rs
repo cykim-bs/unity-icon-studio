@@ -49,6 +49,8 @@ pub struct GenerateRequest {
     pub prompt_only: bool,
     /// Tests: a made-up CODEX_HOME for the child
     pub codex_home: Option<PathBuf>,
+    /// `strict` or `stylized` (None: the pack's `fidelity`, else settings `generate.fidelity`)
+    pub fidelity: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +61,8 @@ pub struct GenerateReport {
     pub kind: String,
     pub pack_id: String,
     pub template_version: String,
+    /// `strict` or `stylized`
+    pub fidelity: String,
     pub refs: Vec<String>,
     pub fixed: String,
     pub final_text: String,
@@ -175,6 +179,7 @@ pub fn generate_staged(home: &Home, settings: &Settings, req: &GenerateRequest, 
         kind: req.kind.clone(),
         pack_id: pack_id.clone(),
         template_version: String::new(),
+        fidelity: String::new(),
         refs: Vec::new(),
         fixed: String::new(),
         final_text: String::new(),
@@ -220,8 +225,11 @@ fn run(
     let onwhite = cap_dir.join("capture-onwhite.png");
     on_white(&capture, &onwhite)?;
 
+    let fidelity = fidelity_for(&pack, settings, req.fidelity.as_deref());
+    report.fidelity = fidelity.clone();
     let mut refs: Vec<PathBuf> = Vec::new();
-    if settings.generate.style_refs && !req.no_pack_refs {
+    // Strict sends no style references: they carry their own charms and proportions
+    if settings.generate.style_refs && !req.no_pack_refs && fidelity != "strict" {
         refs.extend(pack_refs(&pack, Some(name)));
     }
     refs.extend(req.refs.iter().cloned());
@@ -234,6 +242,7 @@ fn run(
     }
 
     let mut ctx = context(&pack, settings, &req.kind, refs.len(), req.yaw, req.pitch);
+    ctx.fidelity = fidelity;
     if ctx.background == "flat" && !settings.generate.key_color.starts_with('#') {
         // `auto`: the key hue least used by the capture
         if let Ok(cap) = crate::post::raster::Raster::open(&capture) {
@@ -270,6 +279,13 @@ fn run(
         stage("rewrite", "ok");
     }
     write(&pdir.join("final.txt"), report.final_text.as_bytes())?;
+    // The sentences sent, for a retry with corrections
+    let sentences = report.rewrite.as_ref().and_then(|r| r.rewritten.as_ref()).map(|r| r.sentences.clone()).unwrap_or_else(|| fixed.sentences.clone());
+    let additions = report.rewrite.as_ref().and_then(|r| r.rewritten.as_ref()).map(|r| r.additions.clone()).unwrap_or_default();
+    write(
+        &pdir.join("sentences.json"),
+        serde_json::to_string_pretty(&json!({ "context": ctx, "sentences": sentences, "additions": additions })).unwrap_or_default().as_bytes(),
+    )?;
     if req.prompt_only {
         return Ok(());
     }
@@ -300,6 +316,66 @@ fn run(
     Ok(())
 }
 
+/// `strict` or `stylized`: the request's, else the pack's `fidelity`, else the settings'.
+pub fn fidelity_for(pack: &Pack, settings: &Settings, asked: Option<&str>) -> String {
+    let pick = |v: Option<&str>| v.filter(|f| prompt::FIDELITIES.contains(f)).map(str::to_string);
+    pick(asked)
+        .or_else(|| pick(pack.doc.get("fidelity").and_then(Value::as_str)))
+        .unwrap_or_else(|| settings.generate.fidelity.clone())
+}
+
+/// Things the note asked to add (from `prompt\sentences.json`), for the fidelity review.
+pub fn allowed_additions(job_dir: &Path) -> Vec<String> {
+    std::fs::read(job_dir.join("prompt").join("sentences.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .and_then(|v| v.get("additions").and_then(Value::as_array).cloned())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+        .unwrap_or_default()
+}
+
+/// One more picture for a job with a correction sentence at the end of SUBJECT (a retry after a
+/// failed fidelity check). Uses the job's sentences and inputs; writes `prompt\final-cand-NN.txt`
+/// and `gen\cand-NN\`, and adds the candidate to `job.json`.
+pub fn retry_candidate(home: &Home, settings: &Settings, job_dir: &Path, cand: u32, correction: &str, codex_home: Option<PathBuf>) -> Result<ImageResult, String> {
+    let job: Value = std::fs::read(job_dir.join("job.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).ok_or("noJob")?;
+    let pack_id = job.get("packId").and_then(Value::as_str).unwrap_or(packs::DEFAULT_ID).to_string();
+    let pack = packs::load(home, &pack_id).map_err(|e| format!("pack:{e}"))?;
+    let saved: Value = std::fs::read(job_dir.join("prompt").join("sentences.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or("noSentences")?;
+    let sentences: Vec<prompt::Sentence> = serde_json::from_value(saved.get("sentences").cloned().unwrap_or(Value::Null)).map_err(|e| format!("sentences:{e}"))?;
+    let background = saved.pointer("/context/background").and_then(Value::as_str).unwrap_or("transparent").to_string();
+    let (_, text) = prompt::with_sentence(&pack, &sentences, "SUBJECT", "correction", correction);
+    write(&job_dir.join("prompt").join(format!("final-cand-{cand:02}.txt")), text.as_bytes())?;
+    let cap_dir = job_dir.join("capture");
+    let mut inputs = vec![cap_dir.join("capture-onwhite.png")];
+    for i in 1..=8 {
+        let r = cap_dir.join(format!("ref-{i:02}.png"));
+        if r.is_file() {
+            inputs.push(r);
+        }
+    }
+    let image = ImageRequest {
+        inputs,
+        prompt: prompt::generator_text(&pack, &background, &text),
+        dest: job_dir.join("gen").join(format!("cand-{cand:02}")),
+        codex_home,
+        ignore_user_config: None,
+    };
+    let r = codex::generate_image(home, settings, &image);
+    let mut doc = job;
+    if let Some(list) = doc.get_mut("candidates").and_then(Value::as_array_mut) {
+        list.push(json!({
+            "ok": r.ok, "raw": r.raw, "harvestStage": r.harvest_stage, "threadId": r.thread_id, "elapsedMs": r.call.elapsed_ms,
+            "code": r.call.code, "width": r.width, "height": r.height, "hasAlpha": r.has_alpha, "retryOf": cand - 1, "correction": correction,
+        }));
+    }
+    write(&job_dir.join("job.json"), serde_json::to_string_pretty(&doc).unwrap_or_default().as_bytes())?;
+    Ok(r)
+}
+
 /// The prefab's name for the job (export names use it).
 fn job_dir_name(req: &GenerateRequest) -> String {
     req.name
@@ -316,6 +392,7 @@ fn write_job(job_dir: &Path, req: &GenerateRequest, report: &GenerateReport) -> 
         "kind": report.kind,
         "packId": report.pack_id,
         "templateVersion": report.template_version,
+        "fidelity": report.fidelity,
         "note": req.note,
         "rewriter": rw.and_then(|r| r.cli.clone()),
         "rewriteFallbackFrom": rw.and_then(|r| r.fallback_from.clone()),

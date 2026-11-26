@@ -165,12 +165,26 @@
     },
     "building": {
       "iouMin": 0.8
+    },
+    "strict": {
+      "iouMin": 0.92,
+      "fidelityProfile": 0.012,
+      "foreignBlobs": 2,
+      "outsideParts": 1,
+      "deltaSaturation": [
+        -0.05,
+        0.15
+      ],
+      "deltaValue": [
+        -0.08,
+        0.15
+      ]
     }
   },
   "styleRefs": [],
   "bannedTerms": [],
   "prompt": {
-    "templateVersion": "2",
+    "templateVersion": "3",
     "order": [
       "HEADER",
       "GOAL",
@@ -201,7 +215,18 @@
         {
           "id": "edit",
           "locked": true,
-          "text": "Edit input image 1 into a single polished casual mobile-game icon. Change only the rendering style."
+          "text": "Edit input image 1 into a single polished casual mobile-game icon. Change only the rendering style.",
+          "when": {
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "edit",
+          "locked": true,
+          "text": "Repaint input image 1 as a polished casual mobile-game icon. This is a repaint, not a redesign: change only how the surfaces are rendered (material, shading, light, softness of color) and keep everything that is drawn exactly as it is in the capture.",
+          "when": {
+            "fidelity": "strict"
+          }
         }
       ],
       "ROLES": [
@@ -218,7 +243,17 @@
           "locked": true,
           "text": "Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (shape, parts, proportions, colors and viewpoint). {refImages}: match only how they are drawn (shading, saturation, level of simplification, framing) and take nothing else from them; do not copy their objects, emblems, colors, characters or layout. If the capture and a reference disagree about the subject, the capture wins.",
           "when": {
-            "refs": true
+            "refs": true,
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "inputs",
+          "locked": true,
+          "text": "Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (every part, its count, size, position, pattern, colors and the viewpoint). {refImages}: match only their rendering (smooth clay / plastic surfaces, soft shading, softness of color) and take nothing else from them; do not copy their objects, decorations, sparkles, hearts, emblems, proportions or layout.",
+          "when": {
+            "refs": true,
+            "fidelity": "strict"
           }
         }
       ],
@@ -226,7 +261,18 @@
         {
           "id": "look",
           "locked": false,
-          "text": "Style: cute stylized 3D render with a soft clay / glossy plastic look, chunky simplified shapes with rounded bevelled edges and slightly chibi proportions (oversized top part, short body, enlarged key parts)."
+          "text": "Style: cute stylized 3D render with a soft clay / glossy plastic look, chunky simplified shapes with rounded bevelled edges and slightly chibi proportions (oversized top part, short body, enlarged key parts).",
+          "when": {
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "look",
+          "locked": false,
+          "text": "Style: smooth stylized 3D render with a soft clay / glossy plastic look; round the existing edges slightly but keep every shape and its proportions.",
+          "when": {
+            "fidelity": "strict"
+          }
         },
         {
           "id": "color",
@@ -236,12 +282,34 @@
         {
           "id": "light",
           "locked": false,
-          "text": "Lighting: warm key light from the upper left front, strong soft ambient so shadow sides stay warm and colorful (never black), clear ambient occlusion in creases, one or two crisp glossy highlights on roofs, glass and metal."
+          "text": "Lighting: warm key light from the upper left front, strong soft ambient so shadow sides stay warm and colorful (never black), clear ambient occlusion in creases, one or two crisp glossy highlights on roofs, glass and metal.",
+          "when": {
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "light",
+          "locked": false,
+          "text": "Lighting: warm key light from the upper left front, strong soft ambient so shadow sides stay warm and colorful (never black), soft ambient occlusion in creases, gentle glossy highlights on surfaces that already exist.",
+          "when": {
+            "fidelity": "strict"
+          }
         },
         {
           "id": "surface",
           "locked": false,
-          "text": "Surfaces: clean flat-shaded materials with no photographic texture and no noise; wood is warm orange-brown with two or three grain lines, stone and brick are large cream blocks, glass is warm glowing yellow or sky blue with a white diagonal glint."
+          "text": "Surfaces: clean flat-shaded materials with no photographic texture and no noise; wood is warm orange-brown with two or three grain lines, stone and brick are large cream blocks, glass is warm glowing yellow or sky blue with a white diagonal glint.",
+          "when": {
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "surface",
+          "locked": false,
+          "text": "Surfaces: clean, smooth materials with no photographic texture and no noise; keep every pattern, stripe, grid, plank and window pane of the capture, only cleaner.",
+          "when": {
+            "fidelity": "strict"
+          }
         },
         {
           "id": "outline",
@@ -265,7 +333,10 @@
         {
           "id": "charms",
           "locked": false,
-          "text": "Small charm details are allowed: one to three tiny four-point sparkles or hearts touching the silhouette, matching the object's theme."
+          "text": "Small charm details are allowed: one to three tiny four-point sparkles or hearts touching the silhouette, matching the object's theme.",
+          "when": {
+            "fidelity": "stylized"
+          }
         }
       ],
       "SUBJECT": [
@@ -274,7 +345,16 @@
           "locked": true,
           "text": "Subject: the building exactly as in the capture; keep its silhouette, roof shape, color layout, signature emblem and openings recognizable.",
           "when": {
-            "kind": "building"
+            "kind": "building",
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "keep",
+          "locked": true,
+          "text": "Subject: exactly the object in the capture. Keep every part, how many there are, where they are and how big each one is relative to the whole object: do not enlarge, shrink, thicken, simplify away, merge, drop or move any part.",
+          "when": {
+            "fidelity": "strict"
           }
         },
         {
@@ -282,7 +362,17 @@
           "locked": false,
           "text": "Keep it standing on a small thick base slab of rounded cream / peach bricks (about two to three tiles on each side).",
           "when": {
-            "kind": "building"
+            "kind": "building",
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "base",
+          "locked": false,
+          "text": "Keep its base exactly as captured (same size, thickness and tiles), with any small plants on it.",
+          "when": {
+            "kind": "building",
+            "fidelity": "strict"
           }
         },
         {
@@ -290,7 +380,8 @@
           "locked": false,
           "text": "Simplify tiny details so it reads at 256 px: enlarge windows, signs and the roof emblem, drop fine patterns.",
           "when": {
-            "kind": "building"
+            "kind": "building",
+            "fidelity": "stylized"
           }
         },
         {
@@ -298,7 +389,17 @@
           "locked": false,
           "text": "No characters, no people, no surrounding ground, trees or props outside the base slab.",
           "when": {
-            "kind": "building"
+            "kind": "building",
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "exclude",
+          "locked": false,
+          "text": "No characters or people.",
+          "when": {
+            "kind": "building",
+            "fidelity": "strict"
           }
         },
         {
@@ -306,7 +407,8 @@
           "locked": true,
           "text": "Subject: the single object exactly as in the capture; keep its shape, colors and key features recognizable.",
           "when": {
-            "kind": "prop"
+            "kind": "prop",
+            "fidelity": "stylized"
           }
         },
         {
@@ -314,7 +416,17 @@
           "locked": false,
           "text": "It floats with no ground, no base and no cast shadow.",
           "when": {
-            "kind": "prop"
+            "kind": "prop",
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "base",
+          "locked": false,
+          "text": "Keep any ground, base or stand that is part of the capture and add none; no cast shadow.",
+          "when": {
+            "kind": "prop",
+            "fidelity": "strict"
           }
         },
         {
@@ -322,7 +434,8 @@
           "locked": false,
           "text": "Slightly exaggerate its most characteristic part.",
           "when": {
-            "kind": "prop"
+            "kind": "prop",
+            "fidelity": "stylized"
           }
         },
         {
@@ -338,7 +451,8 @@
           "locked": true,
           "text": "Subject: the character exactly as in the capture; keep its face, proportions, pose, colors and outfit recognizable, and do not turn it into a different character.",
           "when": {
-            "kind": "character"
+            "kind": "character",
+            "fidelity": "stylized"
           }
         },
         {
@@ -354,7 +468,8 @@
           "locked": false,
           "text": "Simplify tiny details so it reads at 256 px; keep the eyes and the face large and clear.",
           "when": {
-            "kind": "character"
+            "kind": "character",
+            "fidelity": "stylized"
           }
         },
         {
@@ -370,7 +485,8 @@
           "locked": true,
           "text": "Subject: the object exactly as in the capture; keep its silhouette, parts, color layout and proportions recognizable.",
           "when": {
-            "kind": "generic"
+            "kind": "generic",
+            "fidelity": "stylized"
           }
         },
         {
@@ -386,7 +502,8 @@
           "locked": false,
           "text": "Simplify tiny details so it reads at 256 px.",
           "when": {
-            "kind": "generic"
+            "kind": "generic",
+            "fidelity": "stylized"
           }
         },
         {
@@ -412,9 +529,28 @@
           "text": "Avoid: background, floor plane, scenery, drop shadow or glow outside the silhouette, text, letters, numbers, logos, watermark, frame, border, rounded-square app-icon tile, multiple views, sprite sheet, cropped or cut-off parts."
         },
         {
+          "id": "additions",
+          "locked": true,
+          "text": "Add nothing that is not in the capture: no sparkles, stars, hearts, flowers, leaves, bubbles, extra props, emblems, signs or effects.",
+          "when": {
+            "fidelity": "strict"
+          }
+        },
+        {
           "id": "look",
           "locked": false,
-          "text": "Also avoid: photorealism, gritty texture, dark or desaturated palette, inner sketch lines, extra objects not in the capture."
+          "text": "Also avoid: photorealism, gritty texture, dark or desaturated palette, inner sketch lines, extra objects not in the capture.",
+          "when": {
+            "fidelity": "stylized"
+          }
+        },
+        {
+          "id": "look",
+          "locked": false,
+          "text": "Also avoid: photorealism, gritty texture, dark or desaturated palette, inner sketch lines.",
+          "when": {
+            "fidelity": "strict"
+          }
         }
       ],
       "OUTPUT": [

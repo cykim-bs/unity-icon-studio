@@ -5,6 +5,9 @@
 //!   each with an id (`STYLE.color`), a lock flag and optional `when` conditions (kind, style
 //!   references, outline mode, background). Placeholders (`{pitch}`, `{yaw}`, `{side}`,
 //!   `{keyColor}`, ...) come from the capture values and options. Same inputs, same bytes.
+//! - **Fidelity** (`when.fidelity`): `strict` repaints the capture and keeps every part (count,
+//!   position, relative size, pattern) and adds nothing; `stylized` may exaggerate, simplify and add
+//!   small charms. Things a note asks to add are listed after the "add nothing" rule as exceptions.
 //! - **Empty note** (`trim()` is empty): the fixed text is what is sent. No LLM is called.
 //! - **Note** ([`rewrite_prompt`], [`apply_edits`]): the LLM returns an edit list (replace an
 //!   unlocked sentence, add a sentence to an addable block, things to avoid, rejected parts), not a
@@ -19,6 +22,8 @@ use crate::packs::Pack;
 
 pub const REWRITE_SCHEMA: &str = include_str!("../resources/schemas/rewrite.schema.json");
 pub const REVIEW_SCHEMA: &str = include_str!("../resources/schemas/review.schema.json");
+pub const FIDELITY_SCHEMA: &str = include_str!("../resources/schemas/fidelity.schema.json");
+pub const FIDELITIES: &[&str] = &["strict", "stylized"];
 
 pub const MAX_REPLACE: usize = 6;
 pub const MAX_ADD: usize = 4;
@@ -43,6 +48,8 @@ pub struct PromptContext {
     pub background: String,
     /// The flat background color (`#RRGGBB`), when `background` is `flat`
     pub key_color: String,
+    /// `strict` (keep the capture, add nothing) or `stylized`
+    pub fidelity: String,
 }
 
 impl Default for PromptContext {
@@ -55,6 +62,7 @@ impl Default for PromptContext {
             outline: "code".into(),
             background: "transparent".into(),
             key_color: "#FF00FF".into(),
+            fidelity: "strict".into(),
         }
     }
 }
@@ -124,6 +132,7 @@ fn when_matches(when: Option<&Value>, ctx: &PromptContext) -> bool {
         "kind" => one_of(v, &ctx.kind),
         "outline" => one_of(v, &ctx.outline),
         "background" => one_of(v, &ctx.background),
+        "fidelity" => one_of(v, &ctx.fidelity),
         _ => false,
     })
 }
@@ -153,7 +162,7 @@ fn fill(text: &str, ctx: &PromptContext, pack: &Pack) -> String {
     out
 }
 
-fn join(sentences: &[Sentence], order: &[String]) -> String {
+pub fn join(sentences: &[Sentence], order: &[String]) -> String {
     let mut blocks: Vec<String> = Vec::new();
     for b in order {
         let parts: Vec<&str> = sentences.iter().filter(|s| &s.block == b).map(|s| s.text.as_str()).collect();
@@ -164,7 +173,7 @@ fn join(sentences: &[Sentence], order: &[String]) -> String {
     blocks.join("\n\n")
 }
 
-fn order_of(pack: &Pack) -> Vec<String> {
+pub fn order_of(pack: &Pack) -> Vec<String> {
     pack.doc
         .pointer("/prompt/order")
         .and_then(Value::as_array)
@@ -243,6 +252,7 @@ pub fn rewrite_prompt(fixed: &Assembled, note: &str, retry_reason: Option<&str>)
     let input = json!({
         "kind": fixed.context.kind,
         "hasStyleRefs": fixed.context.refs > 0,
+        "fidelity": fixed.context.fidelity,
         "sentences": sentences,
         "addableBlocks": fixed.addable,
         "note": note.trim(),
@@ -266,7 +276,10 @@ when no sentence fits, add one short sentence to one of addableBlocks. Never add
 straight front view, \"flip\" when it asks to show the other side, else \"keep\". These sentences are not edited.\n\
 6. \"avoidAdd\": short English noun phrases for things the note wants kept out of the picture.\n\
 7. \"summaryKo\": one short Korean sentence on what was applied.\n\
-8. At most 6 replace, 4 add and 4 avoidAdd items; each text at most 240 characters; all texts in English except the \
+8. \"additions\": short English noun phrases for new things the note explicitly asks to put on or around the object \
+(for example \"snow on the roof\"); empty when it asks for none. Describe each one also in an added SUBJECT sentence. \
+With \"fidelity\": \"strict\" nothing else may be added, so list every requested addition here.\n\
+9. At most 6 replace, 4 add, 4 avoidAdd and 4 additions items; each text at most 240 characters; all texts in English except the \
 Korean reasons and summaryKo.\n\n\
 INPUT\n",
     );
@@ -288,6 +301,8 @@ pub struct Edits {
     pub replace: Vec<ReplaceEdit>,
     pub add: Vec<AddEdit>,
     pub avoid_add: Vec<String>,
+    /// Things the note asks to add (exceptions to the strict "add nothing" rule)
+    pub additions: Vec<String>,
     pub outline: String,
     pub camera: String,
     pub rejected: Vec<Rejected>,
@@ -323,10 +338,10 @@ pub fn parse_edits(value: &Value) -> Result<Edits, String> {
         return Err("not a JSON object".into());
     }
     let edits: Edits = serde_json::from_value(value.clone()).map_err(|e| format!("does not match the schema: {e}"))?;
-    if edits.replace.len() > MAX_REPLACE || edits.add.len() > MAX_ADD || edits.avoid_add.len() > MAX_AVOID {
+    if edits.replace.len() > MAX_REPLACE || edits.add.len() > MAX_ADD || edits.avoid_add.len() > MAX_AVOID || edits.additions.len() > MAX_ADD {
         return Err(format!("too many items (replace <= {MAX_REPLACE}, add <= {MAX_ADD}, avoidAdd <= {MAX_AVOID})"));
     }
-    let texts = edits.replace.iter().map(|r| &r.text).chain(edits.add.iter().map(|a| &a.text)).chain(edits.avoid_add.iter());
+    let texts = edits.replace.iter().map(|r| &r.text).chain(edits.add.iter().map(|a| &a.text)).chain(edits.avoid_add.iter()).chain(edits.additions.iter());
     for t in texts {
         if t.trim().is_empty() {
             return Err("an empty text".into());
@@ -394,6 +409,9 @@ pub struct Rewritten {
     /// `keep`, `front` or `flip`: a suggestion to capture again, never applied to the prompt
     pub camera: String,
     pub changed: bool,
+    /// Things the note asks to add; the fidelity review does not count them as additions
+    #[serde(default)]
+    pub additions: Vec<String>,
 }
 
 /// Applies checked edits to the fixed prompt. Locked sentences stay byte for byte (checked).
@@ -484,6 +502,39 @@ pub fn apply_edits(pack: &Pack, fixed: &Assembled, edits: &Edits) -> Result<Rewr
         sentences.insert(at, sentence);
     }
 
+    let mut additions: Vec<String> = Vec::new();
+    for item in &edits.additions {
+        let item = item.trim().trim_end_matches('.').to_string();
+        if item.is_empty() {
+            continue;
+        }
+        if let Some(why) = screen(&item) {
+            rejected.push(code_reject(&item, why));
+            continue;
+        }
+        if !additions.contains(&item) {
+            additions.push(item);
+        }
+    }
+    if !additions.is_empty() && fixed.context.fidelity == "strict" {
+        // Right after the locked "add nothing" rule (or at the end of AVOID)
+        let sentence = Sentence {
+            id: "AVOID.allow".into(),
+            block: "AVOID".into(),
+            locked: false,
+            text: format!("Except what the note asks for: {}.", additions.join(", ")),
+            status: Status::Added,
+            before: None,
+        };
+        let at = sentences
+            .iter()
+            .position(|s| s.id == "AVOID.additions")
+            .map(|i| i + 1)
+            .or_else(|| sentences.iter().rposition(|s| s.block == "AVOID").map(|i| i + 1))
+            .unwrap_or(sentences.len());
+        sentences.insert(at, sentence);
+    }
+
     check_locked(fixed, &sentences)?;
     let order = order_of(pack);
     let text = join(&sentences, &order);
@@ -500,7 +551,18 @@ pub fn apply_edits(pack: &Pack, fixed: &Assembled, edits: &Edits) -> Result<Rewr
         summary_ko: edits.summary_ko.trim().to_string(),
         outline: outline.into(),
         camera,
+        additions,
     })
+}
+
+/// `sentences` with one more unlocked sentence at the end of `block`, and the joined text.
+pub fn with_sentence(pack: &Pack, sentences: &[Sentence], block: &str, id: &str, text: &str) -> (Vec<Sentence>, String) {
+    let mut out = sentences.to_vec();
+    let s = Sentence { id: format!("{block}.{id}"), block: block.into(), locked: false, text: text.into(), status: Status::Added, before: None };
+    let at = out.iter().rposition(|x| x.block == block).map(|i| i + 1).unwrap_or(out.len());
+    out.insert(at, s);
+    let text = join(&out, &order_of(pack));
+    (out, text)
 }
 
 /// Every locked sentence of `fixed` is in `sentences`, same text, same order.
@@ -579,7 +641,61 @@ mod tests {
         assert_eq!(a.text.as_bytes(), again.text.as_bytes());
         let golden = include_str!("../../../tests/fixtures/prompt/building-norefs.txt").replace("\r\n", "\n");
         assert_eq!(a.text, golden.trim_end_matches('\n'), "update tests/fixtures/prompt when the default pack changes");
-        assert_eq!(a.template_version, "2");
+        assert_eq!(a.template_version, "3");
+        // Stylized keeps the template 2 text byte for byte
+        let ctx = PromptContext { fidelity: "stylized".into(), ..PromptContext::for_kind(&pack, "building") };
+        let styl = assemble(&pack, &ctx).unwrap();
+        let golden = include_str!("../../../tests/fixtures/prompt/building-norefs-stylized.txt").replace("\r\n", "\n");
+        assert_eq!(styl.text, golden.trim_end_matches('\n'));
+    }
+
+    #[test]
+    fn strict_keeps_the_capture_and_stylized_may_decorate() {
+        let pack = Pack::builtin();
+        for kind in crate::packs::KINDS {
+            for refs in [0, 2] {
+                let strict = assemble(&pack, &PromptContext { refs, ..PromptContext::for_kind(&pack, kind) }).unwrap();
+                let t = &strict.text;
+                assert!(t.contains("This is a repaint, not a redesign"), "{kind}");
+                assert!(t.contains("Add nothing that is not in the capture"), "{kind}");
+                assert!(strict.sentences.iter().any(|s| s.id == "AVOID.additions" && s.locked));
+                assert!(strict.sentences.iter().any(|s| s.id == "SUBJECT.keep" && s.locked && s.text.contains("how big each one is")));
+                for word in ["chibi", "sparkles or hearts touching", "exaggerate", "enlarge windows", "thick base slab"] {
+                    assert!(!t.contains(word), "{kind}: {word}");
+                }
+                let styl = assemble(&pack, &PromptContext { refs, fidelity: "stylized".into(), ..PromptContext::for_kind(&pack, kind) }).unwrap();
+                assert!(styl.text.contains("sparkles or hearts"), "{kind}");
+                assert!(!styl.text.contains("Add nothing that is not in the capture"));
+            }
+        }
+        let prop = assemble(&pack, &PromptContext::for_kind(&pack, "prop")).unwrap();
+        assert!(prop.text.contains("Keep any ground, base or stand that is part of the capture"));
+    }
+
+    #[test]
+    fn note_additions_become_an_exception_after_the_locked_rule() {
+        let (pack, fixed) = building();
+        let edits = Edits {
+            add: vec![AddEdit { block: "SUBJECT".into(), text: "A thick layer of white snow covers the roof.".into() }],
+            additions: vec!["snow on the roof".into(), "a logo".into()],
+            outline: "keep".into(),
+            camera: "keep".into(),
+            ..Edits::default()
+        };
+        let r = apply_edits(&pack, &fixed, &edits).unwrap();
+        assert_eq!(r.additions, ["snow on the roof"]);
+        assert!(r.rejected.iter().any(|x| x.reason == "forbidden:logo"));
+        let i = r.sentences.iter().position(|s| s.id == "AVOID.additions").unwrap();
+        assert_eq!(r.sentences[i + 1].id, "AVOID.allow");
+        assert!(r.text.contains("Add nothing that is not in the capture: no sparkles, stars, hearts, flowers, leaves, bubbles, extra props, emblems, signs or effects. Except what the note asks for: snow on the roof."));
+        // Stylized has no such rule: no exception sentence
+        let styl = assemble(&pack, &PromptContext { fidelity: "stylized".into(), ..PromptContext::for_kind(&pack, "building") }).unwrap();
+        let r = apply_edits(&pack, &styl, &edits).unwrap();
+        assert!(!r.sentences.iter().any(|s| s.id == "AVOID.allow"));
+        // A correction for a retry goes at the end of SUBJECT, unlocked
+        let (s, text) = with_sentence(&pack, &fixed.sentences, "SUBJECT", "correction", "Corrections from the previous try: do not add sparkles.");
+        assert!(check_locked(&fixed, &s).is_ok());
+        assert!(text.contains("No characters or people. Corrections from the previous try: do not add sparkles."));
     }
 
     #[test]

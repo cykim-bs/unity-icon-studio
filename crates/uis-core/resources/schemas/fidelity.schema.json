@@ -1,0 +1,115 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "pass",
+    "added",
+    "resized",
+    "missing",
+    "changedPattern",
+    "summary"
+  ],
+  "properties": {
+    "pass": {
+      "type": "boolean"
+    },
+    "added": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "what",
+          "where",
+          "severity"
+        ],
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "where": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major"
+            ]
+          }
+        }
+      }
+    },
+    "resized": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "what",
+          "change",
+          "severity"
+        ],
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "change": {
+            "type": "string",
+            "enum": [
+              "bigger",
+              "smaller",
+              "thicker",
+              "thinner",
+              "moved",
+              "reshaped"
+            ]
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major"
+            ]
+          }
+        }
+      }
+    },
+    "missing": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "what",
+          "where",
+          "severity"
+        ],
+        "properties": {
+          "what": {
+            "type": "string"
+          },
+          "where": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "minor",
+              "major"
+            ]
+          }
+        }
+      }
+    },
+    "changedPattern": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "summary": {
+      "type": "string"
+    }
+  }
+}

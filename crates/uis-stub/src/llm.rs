@@ -61,6 +61,51 @@ fn log_call(role: &str, kind: &str, stdin: &[u8]) -> usize {
     n
 }
 
+/// The "repainted" picture of `codex_image=copy`: input image 1 (the capture on white) with its
+/// white keyed out; with `sparkle`, a yellow four-point star drawn apart from it at the top right.
+fn copy_picture(input: &str, sparkle: bool) -> image::RgbaImage {
+    let Ok(src) = image::open(input) else { return image::RgbaImage::new(64, 64) };
+    let mut img = src.to_rgba8();
+    // Small made-up captures are scaled up: a harvested picture must be at least 256 px
+    let k = 400u32.div_ceil(img.width().max(1)).max(1);
+    if k > 1 {
+        img = image::imageops::resize(&img, img.width() * k, img.height() * k, image::imageops::FilterType::Triangle);
+    }
+    for p in img.pixels_mut() {
+        if p.0[0] > 248 && p.0[1] > 248 && p.0[2] > 248 {
+            p.0 = [0, 0, 0, 0];
+        }
+    }
+    if sparkle {
+        let (w, h) = (img.width() as f32, img.height() as f32);
+        let (cx, cy, r) = (w * 0.86, h * 0.14, w * 0.13);
+        for y in 0..img.height() {
+            for x in 0..img.width() {
+                let (dx, dy) = ((x as f32 - cx).abs(), (y as f32 - cy).abs());
+                if dx * dy < r * r * 0.08 && dx + dy < r {
+                    img.put_pixel(x, y, image::Rgba([255, 214, 30, 255]));
+                }
+            }
+        }
+    }
+    img
+}
+
+/// A fidelity review answer. Scenario `fidelity=clean` (default), `added` (always a sparkle) or
+/// `added_once` (a sparkle on the first fidelity call of this CLI, clean after: a retry fixes it).
+fn fidelity_answer(sc: &std::collections::HashMap<String, String>, role: &str) -> Value {
+    let log = here().join(format!("{role}-fidelity.count"));
+    let n = std::fs::read_to_string(&log).ok().and_then(|t| t.trim().parse::<usize>().ok()).unwrap_or(0) + 1;
+    let _ = std::fs::write(&log, n.to_string());
+    let added = match sc.get("fidelity").map(String::as_str).unwrap_or("clean") {
+        "added" => true,
+        "added_once" => n == 1,
+        _ => false,
+    };
+    let list = if added { json!([{ "what": "Yellow four-point sparkle", "where": "above the roof", "severity": "major" }]) } else { json!([]) };
+    json!({ "pass": !added, "added": list, "resized": [], "missing": [], "changedPattern": [], "summary": if added { "A sparkle was added." } else { "Same parts." } })
+}
+
 fn reply(n: usize, default: Value) -> Value {
     for name in [format!("reply-{n}.json"), "reply.json".to_string()] {
         if let Ok(t) = std::fs::read_to_string(here().join(name)) {
@@ -168,10 +213,18 @@ pub fn codex(args: &[String]) -> i32 {
             let dir = chome.join("generated_images").join(&thread);
             let _ = std::fs::create_dir_all(&dir);
             let pic = dir.join("exec-stub.png");
-            let img = image::RgbaImage::from_fn(320, 320, |x, y| {
-                let inside = (40..280).contains(&x) && (40..280).contains(&y);
-                image::Rgba([(x % 256) as u8, (y % 256) as u8, 120, if inside { 255 } else { 0 }])
-            });
+            let img = match sc.get("codex_image").map(String::as_str) {
+                Some(mode @ ("copy" | "copy_sparkle" | "copy_sparkle_once")) => {
+                    let images_before = std::fs::read_to_string(here().join("codex-images.count")).ok().and_then(|t| t.trim().parse::<usize>().ok()).unwrap_or(0);
+                    let _ = std::fs::write(here().join("codex-images.count"), (images_before + 1).to_string());
+                    let sparkle = mode == "copy_sparkle" || (mode == "copy_sparkle_once" && images_before == 0);
+                    copy_picture(images.first().map(String::as_str).unwrap_or(""), sparkle)
+                }
+                _ => image::RgbaImage::from_fn(320, 320, |x, y| {
+                    let inside = (40..280).contains(&x) && (40..280).contains(&y);
+                    image::Rgba([(x % 256) as u8, (y % 256) as u8, 120, if inside { 255 } else { 0 }])
+                }),
+            };
             let _ = img.save(&pic);
             let path = pic.display().to_string();
             match sc.get("codex_harvest").map(String::as_str).unwrap_or("2") {
@@ -194,7 +247,13 @@ pub fn codex(args: &[String]) -> i32 {
         }
         _ => {
             let schema = value_after(args, "--output-schema").and_then(|f| std::fs::read_to_string(f).ok()).unwrap_or_default();
-            let default = if schema.contains("\"pass\"") { json!({ "pass": true, "issues": [] }) } else { default_edits() };
+            let default = if schema.contains("changedPattern") {
+                fidelity_answer(&sc, "codex")
+            } else if schema.contains("\"pass\"") {
+                json!({ "pass": true, "issues": [] })
+            } else {
+                default_edits()
+            };
             let answer = reply(n, default).to_string();
             msg(&answer);
             write_last(&answer);
@@ -248,7 +307,14 @@ pub fn claude(args: &[String]) -> i32 {
             0
         }
         _ => {
-            let default = if review { json!({ "pass": true, "issues": [] }) } else { default_edits() };
+            let schema = value_after(args, "--json-schema").unwrap_or_default();
+            let default = if schema.contains("changedPattern") {
+                fidelity_answer(&sc, "claude")
+            } else if review {
+                json!({ "pass": true, "issues": [] })
+            } else {
+                default_edits()
+            };
             let answer = reply(n, default);
             result(false, "completed", &answer.to_string(), Some(answer));
             0

@@ -22,6 +22,7 @@ pub const THEMES: &[&str] = &["system", "light", "dark"];
 pub const CAPTURE_MODES: &[&str] = &["auto", "attach", "batch"];
 pub const REWRITERS: &[&str] = &["claude", "codex"];
 pub const REVIEWERS: &[&str] = &["off", "claude", "codex"];
+pub const FIDELITY_REVIEWERS: &[&str] = &["off", "claude", "codex", "both"];
 pub const OUTLINES: &[&str] = &["code", "model", "none"];
 pub const BACKGROUNDS: &[&str] = &["transparent", "flat"];
 pub const EXPORT_SIZES: &[u32] = &[256, 512, 1024];
@@ -117,6 +118,8 @@ pub struct Llm {
     pub rewriter: String,
     pub review: String,
     pub confirm_rewrite: bool,
+    /// Who checks a strict picture against its capture: `off`, `claude`, `codex` or `both`
+    pub fidelity_review: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -128,6 +131,10 @@ pub struct Generate {
     pub key_color: String,
     pub saturation_boost: bool,
     pub style_refs: bool,
+    /// `strict` (keep the capture, add nothing) or `stylized` (exaggerate, simplify, small charms)
+    pub fidelity: String,
+    /// New pictures with corrections when a strict picture fails its fidelity checks
+    pub fidelity_retries: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -207,7 +214,7 @@ impl Default for Claude {
 
 impl Default for Llm {
     fn default() -> Self {
-        Llm { rewriter: "claude".into(), review: "off".into(), confirm_rewrite: false }
+        Llm { rewriter: "claude".into(), review: "off".into(), confirm_rewrite: false, fidelity_review: "codex".into() }
     }
 }
 
@@ -220,6 +227,8 @@ impl Default for Generate {
             key_color: "auto".into(),
             saturation_boost: false,
             style_refs: true,
+            fidelity: "strict".into(),
+            fidelity_retries: 1,
         }
     }
 }
@@ -289,6 +298,9 @@ impl Settings {
         clamp(&mut self.claude.timeout_sec, 10, 600);
         pick(&mut self.llm.rewriter, REWRITERS, "claude");
         pick(&mut self.llm.review, REVIEWERS, "off");
+        pick(&mut self.llm.fidelity_review, FIDELITY_REVIEWERS, "codex");
+        pick(&mut self.generate.fidelity, crate::prompt::FIDELITIES, "strict");
+        clamp(&mut self.generate.fidelity_retries, 0, 2);
         clamp(&mut self.generate.candidates, 1, 4);
         pick(&mut self.generate.outline, OUTLINES, "code");
         pick(&mut self.generate.background, BACKGROUNDS, "transparent");

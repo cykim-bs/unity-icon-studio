@@ -1,0 +1,15 @@
+Use this prompt exactly as written; do not rewrite it or add details.
+
+Edit input image 1 into a single polished casual mobile-game icon. Change only the rendering style.
+
+Input image 1 is a raw 3D capture of the subject: it alone defines what to draw (shape, parts, proportions, colors and viewpoint).
+
+Style: cute stylized 3D render with a soft clay / glossy plastic look, chunky simplified shapes with rounded bevelled edges and slightly chibi proportions (oversized top part, short body, enlarged key parts). Color: bright, cheerful pastel palette: soft, slightly creamy base colors with only a few stronger accent colors; a little richer than the capture but never neon or oversaturated; no haze, no fog, no bloom. Lighting: warm key light from the upper left front, strong soft ambient so shadow sides stay warm and colorful (never black), clear ambient occlusion in creases, one or two crisp glossy highlights on roofs, glass and metal. Surfaces: clean flat-shaded materials with no photographic texture and no noise; wood is warm orange-brown with two or three grain lines, stone and brick are large cream blocks, glass is warm glowing yellow or sky blue with a white diagonal glint. No outline: keep a crisp, clean silhouette edge with no stroke, no sticker border and no glow. Small charm details are allowed: one to three tiny four-point sparkles or hearts touching the silhouette, matching the object's theme.
+
+Subject: the building exactly as in the capture; keep its silhouette, roof shape, color layout, signature emblem and openings recognizable. Keep it standing on a small thick base slab of rounded cream / peach bricks (about two to three tiles on each side). Simplify tiny details so it reads at 256 px: enlarge windows, signs and the roof emblem, drop fine patterns. No characters, no people, no surrounding ground, trees or props outside the base slab.
+
+Keep the capture's viewpoint exactly: camera looking down at about 30 degrees, object turned about 28 degrees so the front face and the right side face are visible, orthographic-like projection with parallel vertical edges, no wide-angle distortion. Do not rotate, re-pose or re-frame the object.
+
+Avoid: background, floor plane, scenery, drop shadow or glow outside the silhouette, text, letters, numbers, logos, watermark, frame, border, rounded-square app-icon tile, multiple views, sprite sheet, cropped or cut-off parts. Also avoid: photorealism, gritty texture, dark or desaturated palette, inner sketch lines, extra objects not in the capture.
+
+Output: one single icon on a square canvas with a fully transparent background (real alpha, not a drawn checkerboard); the whole object visible, centered horizontally, about 88% of the canvas on its longest side, nothing touching the canvas edge.
