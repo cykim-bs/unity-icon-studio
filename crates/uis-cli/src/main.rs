@@ -34,6 +34,12 @@ commands:
            [--name <prefab>] [--pack <id>] [--out <job folder>] [--prompt-only] [--post] [--json]
                        make raw icon pictures with Codex (counts against the image limit);
                        --post also post-processes and checks each picture
+  run --project <folder> --prefab <asset> [<asset>...] [--note <text>] [--cli claude|codex]
+      [--mode auto|attach|batch] [--candidates N] [--outline code|model|none]
+      [--background auto|key] [--outline-off-ok] [--no-pack-refs] [--to <folder> [--sizes 256,512] [--export-failing]]
+      [--pack <id>] [--json]
+                       the whole run: capture → prompt → rewrite → pictures → post-processing →
+                       checks [→ export]; steps go to stderr (counts against the image limit)
   review --capture <png> --candidate <png> --kind <kind> [--cli claude|codex] [--json]
                        ask an LLM whether a picture is usable ({pass, issues})
   post --job <folder> [--cand N] [--set key=value...] [--json]
@@ -119,6 +125,7 @@ fn main() {
         Some("prompt") => prompt_cmd(&args),
         Some("rewrite") => rewrite_cmd(&args),
         Some("generate") => generate_cmd(&args),
+        Some("run") => run_cmd(&args),
         Some("review") => review_cmd(&args),
         Some("post") => post_cmds::post_cmd(&args),
         Some("check") => post_cmds::check_cmd(&args),
@@ -595,5 +602,71 @@ fn print_value(value: &Value, json_out: bool) {
         for (k, v) in obj {
             println!("{k}: {}", v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()));
         }
+    }
+}
+
+fn run_cmd(args: &Args) -> i32 {
+    let Some(project) = args.value("--project").map(PathBuf::from) else {
+        eprintln!("uis run: give --project and --prefab
+
+{USAGE}");
+        return 2;
+    };
+    let items = args.all("--prefab");
+    if items.is_empty() {
+        eprintln!("uis run: give one or more --prefab assets
+
+{USAGE}");
+        return 2;
+    }
+    let home = Home::resolve();
+    let settings = uis_core::settings::load(&home);
+    let project = uis_core::project::find_project_root(&project).unwrap_or(project);
+    let listed = settings.projects.iter().find(|p| PathBuf::from(&p.path).canonicalize().ok() == project.canonicalize().ok());
+    let mut post = serde_json::Map::new();
+    if let Some(v) = args.value("--outline") {
+        post.insert("outline".into(), json!(v));
+    }
+    if let Some(v) = args.value("--background") {
+        post.insert("background".into(), json!(v));
+    }
+    let sizes = args.value("--sizes").map(|v| v.split(',').filter_map(|x| x.trim().parse().ok()).collect::<Vec<u32>>());
+    let req = uis_core::pipeline::RunRequest {
+        project,
+        items: items.into_iter().map(|a| uis_core::pipeline::RunItemRequest { asset: a, ..Default::default() }).collect(),
+        pack_id: args.value("--pack").map(str::to_string).or_else(|| listed.map(|p| p.pack_id.clone())),
+        mode: args.value("--mode").map(str::to_string),
+        note: args.value("--note").unwrap_or_default().to_string(),
+        rewriter: args.value("--cli").map(str::to_string),
+        candidates: args.value("--candidates").and_then(|v| v.parse().ok()),
+        post: Value::Object(post),
+        outline_off_ok: args.has("--outline-off-ok"),
+        no_refs: args.has("--no-pack-refs"),
+        export_dir: args.value("--to").map(PathBuf::from),
+        export_sizes: sizes,
+        export_failing: args.has("--export-failing"),
+        ..Default::default()
+    };
+    let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let report = uis_core::pipeline::run(&home, &settings, &req, cancel, &mut |e| {
+        if e.state != "progress" {
+            let item = e.item.as_deref().map(|i| format!(" [{}/{}] {i}", e.index, e.total)).unwrap_or_default();
+            let msg = if e.message.is_empty() { String::new() } else { format!(" {}", e.message) };
+            eprintln!("{:>7.1}s {} {}{item}{msg}", e.elapsed_ms as f64 / 1000.0, e.stage, e.state);
+        }
+    });
+    if args.json {
+        print_value(&serde_json::to_value(&report).unwrap_or_default(), true);
+    } else {
+        for it in &report.items {
+            let x = it.export.as_ref().map(|x| if x.ok { format!(" -> {}", x.folder) } else { format!(" export:{}", x.error.clone().unwrap_or_default()) }).unwrap_or_default();
+            let why = it.error.as_deref().map(|e| format!(" ({}: {e})", it.stage.as_deref().unwrap_or("-"))).unwrap_or_default();
+            println!("{} {} pass={}{why}{x}", it.state, it.asset, it.pass);
+        }
+    }
+    if report.ok {
+        0
+    } else {
+        1
     }
 }

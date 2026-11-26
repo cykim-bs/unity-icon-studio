@@ -210,7 +210,7 @@ fn wait(child: &mut Child, limit: Option<Duration>, job: &Option<job::Job>) -> O
             Ok(None) => {}
             Err(_) => return Outcome::Exited(-1),
         }
-        if deadline.is_some_and(|d| Instant::now() >= d) {
+        if deadline.is_some_and(|d| Instant::now() >= d) || cancel_requested() {
             match job {
                 Some(j) => j.end_tree(),
                 // Not in a job (assignment failed): end the child itself. Only CLI children
@@ -224,6 +224,26 @@ fn wait(child: &mut Child, limit: Option<Duration>, job: &Option<job::Job>) -> O
         }
         std::thread::sleep(Duration::from_millis(15));
     }
+}
+
+thread_local! {
+    /// The stop flag of the work running on this thread (a pipeline run), see [`with_cancel`].
+    static CANCEL: std::cell::RefCell<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Runs `f` with `flag` as this thread's stop flag: a CLI child started by [`run`] inside `f` is
+/// ended (like a time-out) once the flag is set. Unity is never started through [`run`], so a stop
+/// never ends Unity.
+pub fn with_cancel<T>(flag: std::sync::Arc<std::sync::atomic::AtomicBool>, f: impl FnOnce() -> T) -> T {
+    let before = CANCEL.with(|c| c.replace(Some(flag)));
+    let out = f();
+    CANCEL.with(|c| *c.borrow_mut() = before);
+    out
+}
+
+/// True when this thread's stop flag is set.
+pub fn cancel_requested() -> bool {
+    CANCEL.with(|c| c.borrow().as_ref().is_some_and(|f| f.load(std::sync::atomic::Ordering::SeqCst)))
 }
 
 /// A Windows program by its full path under `%SystemRoot%\System32` (`cmd.exe`,

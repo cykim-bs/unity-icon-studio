@@ -792,6 +792,21 @@ fn thumbnails(home: &Home, project: &Path, items: &[JobItem], job: &Value, mut r
     report
 }
 
+/// The newest 128 px thumbnail of each prefab guid of a project (what earlier captures left).
+pub fn thumbs(home: &Home, project: &Path) -> std::collections::HashMap<String, PathBuf> {
+    let dir = home.cache_dir().join(prefabs::project_hash(project)).join("thumbs");
+    let mut best: std::collections::HashMap<String, (std::time::SystemTime, PathBuf)> = std::collections::HashMap::new();
+    for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some((guid, _)) = name.strip_suffix(".png").and_then(|n| n.rsplit_once('-')) else { continue };
+        let at = e.metadata().and_then(|m| m.modified()).unwrap_or(std::time::UNIX_EPOCH);
+        if best.get(guid).is_none_or(|(t, _)| at > *t) {
+            best.insert(guid.to_string(), (at, e.path()));
+        }
+    }
+    best.into_iter().map(|(g, (_, p))| (g, p)).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

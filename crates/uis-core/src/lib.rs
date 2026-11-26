@@ -13,6 +13,7 @@ pub mod image;
 pub mod jobs;
 pub mod journal;
 pub mod packs;
+pub mod pipeline;
 pub mod post;
 pub mod prefabs;
 pub mod proc;

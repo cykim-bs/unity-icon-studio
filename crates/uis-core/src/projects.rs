@@ -157,6 +157,23 @@ pub fn remove(home: &Home, id: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Picks the style pack a listed project uses (the pack must load).
+pub fn set_pack(home: &Home, id: &str, pack_id: &str) -> Result<ProjectSummary, String> {
+    crate::packs::load(home, pack_id).map_err(|e| format!("pack:{e}"))?;
+    let current = settings::load(home);
+    let mut projects = current.projects.clone();
+    let Some(entry) = projects.iter_mut().find(|p| p.id == id) else { return Err("noProject".into()) };
+    entry.pack_id = pack_id.to_string();
+    let entry = entry.clone();
+    let mut patch = Map::new();
+    patch.insert("projects".into(), serde_json::to_value(&projects).map_err(|e| format!("write:{e}"))?);
+    settings::update(home, &patch)?;
+    let mut state = load_state(home, id);
+    state.pack_id = pack_id.to_string();
+    save_state(home, id, &state)?;
+    Ok(summary(home, &entry))
+}
+
 /// Applies `patch` to one prefab's override (`null` for a key clears it) and returns the result.
 pub fn set_override(home: &Home, id: &str, guid: &str, patch: &Map<String, Value>) -> Result<Override, String> {
     entry(home, id)?;

@@ -169,12 +169,31 @@ pub fn list(home: &Home, settings: &Settings, limit: usize) -> Vec<Value> {
         .map(|d| {
             let job: Value = std::fs::read(d.join("job.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or(Value::Null);
             let posted: Vec<u32> = candidates(&d).into_iter().filter(|c| d.join("post").join(format!("cand-{c:02}")).join("checks.json").is_file()).collect();
+            let best = job.get("best").and_then(Value::as_u64).map(|b| b as u32).or_else(|| posted.first().copied());
+            let icon = best
+                .map(|b| d.join("post").join(format!("cand-{b:02}")).join("icon-256.png"))
+                .filter(|p| p.is_file())
+                .map(|p| p.display().to_string());
+            let at = d.file_name().map(|n| n.to_string_lossy().chars().take(15).collect::<String>()).unwrap_or_default();
             json!({
                 "dir": d.display().to_string(),
+                "at": at,
+                "name": job.get("name"),
                 "kind": job.get("kind"),
+                "packId": job.get("packId"),
+                "note": job.get("note"),
+                "project": job.get("project"),
+                "projectName": job.get("projectName"),
+                "asset": job.get("asset"),
                 "ok": job.get("ok"),
+                "state": job.get("state"),
+                "pass": job.get("pass"),
+                "failedStage": job.get("failedStage"),
+                "error": job.get("runError").filter(|v| !v.is_null()).or_else(|| job.get("error")),
                 "candidates": candidates(&d),
                 "posted": posted,
+                "best": best,
+                "icon": icon,
                 "exported": d.join("export.json").is_file(),
             })
         })

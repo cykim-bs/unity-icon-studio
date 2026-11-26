@@ -153,6 +153,12 @@ pub fn generate(home: &Home, settings: &Settings, req: &GenerateRequest) -> Gene
 }
 
 pub fn generate_with(home: &Home, settings: &Settings, req: &GenerateRequest, llm: &dyn TextLlm) -> GenerateReport {
+    generate_staged(home, settings, req, llm, &mut |_, _| {})
+}
+
+/// [`generate_with`], telling `stage(name, state)` when a step starts and ends: `prompt`,
+/// `rewrite` (`skip` for an empty note) and `generate` (`start` before each candidate).
+pub fn generate_staged(home: &Home, settings: &Settings, req: &GenerateRequest, llm: &dyn TextLlm, stage: &mut dyn FnMut(&str, &str)) -> GenerateReport {
     let started = std::time::Instant::now();
     let pack_id = req.pack_id.clone().unwrap_or_else(|| packs::DEFAULT_ID.into());
     let name = req
@@ -177,7 +183,7 @@ pub fn generate_with(home: &Home, settings: &Settings, req: &GenerateRequest, ll
         error: None,
         elapsed_ms: 0,
     };
-    let result = run(home, settings, req, llm, &pack_id, &name, &job_dir, &mut report);
+    let result = run(home, settings, req, llm, &pack_id, &name, &job_dir, &mut report, stage);
     if let Err(e) = result {
         report.error = Some(e);
     }
@@ -197,7 +203,9 @@ fn run(
     name: &str,
     job_dir: &Path,
     report: &mut GenerateReport,
+    stage: &mut dyn FnMut(&str, &str),
 ) -> Result<(), String> {
+    stage("prompt", "start");
     if !packs::KINDS.contains(&req.kind.as_str()) {
         return Err(format!("badKind:{}", req.kind));
     }
@@ -237,7 +245,10 @@ fn run(
     report.fixed = fixed.text.clone();
     let pdir = job_dir.join("prompt");
     write(&pdir.join("fixed.txt"), fixed.text.as_bytes())?;
+    stage("prompt", "ok");
 
+    let note_empty = req.note.trim().is_empty();
+    stage("rewrite", if note_empty { "skip" } else { "start" });
     let rewriter = req.rewriter.clone().unwrap_or_else(|| settings.llm.rewriter.clone());
     let rw = cli::rewrite(&pack, &fixed, &req.note, &rewriter, llm);
     if let Some(r) = &rw.request {
@@ -252,7 +263,11 @@ fn run(
     report.final_text = rw.final_text.clone();
     report.rewrite = Some(rw);
     if !ok {
+        stage("rewrite", "fail");
         return Err(format!("rewrite:{}", failure.map(|f| f.code()).unwrap_or_default()));
+    }
+    if !note_empty {
+        stage("rewrite", "ok");
     }
     write(&pdir.join("final.txt"), report.final_text.as_bytes())?;
     if req.prompt_only {
@@ -262,6 +277,10 @@ fn run(
     let text = prompt::generator_text(&pack, &ctx.background, &report.final_text);
     let n = req.candidates.unwrap_or(settings.generate.candidates).clamp(1, 4);
     for i in 1..=n {
+        if crate::proc::cancel_requested() {
+            break;
+        }
+        stage("generate", "start");
         let image = ImageRequest {
             inputs: inputs.clone(),
             prompt: text.clone(),
