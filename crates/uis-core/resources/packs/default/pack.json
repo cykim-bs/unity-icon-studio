@@ -106,6 +106,18 @@
     "fillPct": 88,
     "bottomTopRatio": 0.6
   },
+  "post": {
+    "edgeCompPx": 0.5,
+    "aaPx": 1.0,
+    "workScale": 4,
+    "compose": "output",
+    "minPartPct": 0.5,
+    "holeFillPct": 0.3,
+    "edgeLo": 0.25,
+    "edgeHi": 0.75,
+    "keyTol": 12,
+    "keySoft": 25
+  },
   "checks": {
     "default": {
       "cornerAlphaMax": 0,
@@ -158,7 +170,7 @@
   "styleRefs": [],
   "bannedTerms": [],
   "prompt": {
-    "templateVersion": "1",
+    "templateVersion": "2",
     "order": [
       "HEADER",
       "GOAL",
@@ -219,7 +231,7 @@
         {
           "id": "color",
           "locked": false,
-          "text": "Color: bright, saturated pastel palette with a few strong accent colors; higher saturation and contrast than the capture; no haze, no fog, no bloom."
+          "text": "Color: bright, cheerful pastel palette: soft, slightly creamy base colors with only a few stronger accent colors; a little richer than the capture but never neon or oversaturated; no haze, no fog, no bloom."
         },
         {
           "id": "light",

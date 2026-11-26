@@ -579,7 +579,7 @@ mod tests {
         assert_eq!(a.text.as_bytes(), again.text.as_bytes());
         let golden = include_str!("../../../tests/fixtures/prompt/building-norefs.txt").replace("\r\n", "\n");
         assert_eq!(a.text, golden.trim_end_matches('\n'), "update tests/fixtures/prompt when the default pack changes");
-        assert_eq!(a.template_version, "1");
+        assert_eq!(a.template_version, "2");
     }
 
     #[test]
