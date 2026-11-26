@@ -198,6 +198,67 @@ pub fn post_run(home: &Home, settings: &Settings, req: &PostRequest) -> Result<P
     Ok(report)
 }
 
+/// What the app compares for a candidate's fidelity: the job's capture and the candidate's raw
+/// picture after its alpha was made (the same preparation as post-processing, with the options
+/// the candidate was finished with), against the pack's strict limits. Not the finished icon: its
+/// outline and new layout would count as differences.
+pub struct CandidateFidelity {
+    pub capture: PathBuf,
+    pub raw: PathBuf,
+    pub report: crate::fidelity::FidelityReport,
+}
+
+pub fn candidate_fidelity(home: &Home, settings: &Settings, job_dir: &Path, cand: u32, map: Option<&Path>) -> Result<CandidateFidelity, String> {
+    let job: Value = std::fs::read(job_dir.join("job.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .ok_or_else(|| "noJob".to_string())?;
+    let kind = job.get("kind").and_then(Value::as_str).unwrap_or("generic").to_string();
+    let pack_id = job.get("packId").and_then(Value::as_str).unwrap_or(packs::DEFAULT_ID);
+    let pack = packs::load(home, pack_id).map_err(|e| format!("pack:{e}"))?;
+    let name = format!("cand-{cand:02}");
+    let raw = job_dir.join("gen").join(&name).join("raw.png");
+    let capture = job_dir.join("capture").join("capture.png");
+    if !raw.is_file() {
+        return Err(format!("noRaw:{name}"));
+    }
+    if !capture.is_file() {
+        return Err("noCapture".into());
+    }
+    // The options the candidate was finished with, else the ones it would get now
+    let saved = std::fs::read(job_dir.join("post").join(&name).join("options.json")).ok().and_then(|b| serde_json::from_slice::<PostOptions>(&b).ok());
+    let opts = saved.unwrap_or_else(|| options_for(&pack, settings, &kind, &Value::Null));
+    let out = post::process(&Raster::open(&raw)?, &opts)?;
+    let cap = Raster::open(&capture)?;
+    let color = post::raster::parse_hex(&opts.outline_color).unwrap_or([0.459, 0.216, 0.098]);
+    let limits = pack.doc.pointer("/checks/strict").cloned().unwrap_or(Value::Null);
+    let (m, fmap) = crate::fidelity::measure(&cap, &out.source);
+    let sv = |img: &Raster| {
+        let x = checks::measure(img, color);
+        [x.saturation, x.value]
+    };
+    let (cap_c, gen_c) = (sv(&cap), sv(&out.source));
+    let (report, suspect) = crate::fidelity::check(&m, cap_c, gen_c, &limits);
+    let map_saved = map.and_then(|p| fmap.save(p).ok().map(|_| p.display().to_string()));
+    Ok(CandidateFidelity {
+        capture,
+        raw,
+        report: crate::fidelity::FidelityReport { metrics: m, report, suspect, capture_color: cap_c, generated_color: gen_c, map: map_saved },
+    })
+}
+
+/// The job folder and candidate of a finished icon inside one (`<job>\post\cand-NN\…png`).
+pub fn job_of_finished_picture(path: &Path) -> Option<(PathBuf, u32)> {
+    let cand_dir = path.parent()?;
+    let n: u32 = cand_dir.file_name()?.to_str()?.strip_prefix("cand-")?.parse().ok()?;
+    let post = cand_dir.parent()?;
+    if !post.file_name()?.to_str()?.eq_ignore_ascii_case("post") {
+        return None;
+    }
+    let job = post.parent()?;
+    job.join("job.json").is_file().then(|| (job.to_path_buf(), n))
+}
+
 /// Post-processes candidate `cand` of a job folder made by `generate` (kind, pack and capture
 /// come from `job.json`).
 pub fn post_candidate(home: &Home, settings: &Settings, job_dir: &Path, cand: u32, overrides: &Value) -> Result<PostJobReport, String> {

@@ -58,12 +58,17 @@ commands:
                        pixel checks of finished icons against the pack's ranges
   board --out <png> [--title <text>] [--spec <rows.json>] [--job <folder> [--ref <png>]]...
                        a comparison board: capture | raw | icon | small sizes | on white and dark | reference
-  export --job <folder> --to <folder> [--cand N] [--sizes 256,512,1024] [--name <prefab>] [--rule <rule>]
-                       copy finished icons out (never into a Unity project)
+  export --job <folder> --to <folder> [--cand N] [--sizes 256,512] [--no-original] [--name <prefab>] [--rule <rule>]
+                       copy finished icons out (never into a Unity project); the 1024 picture goes
+                       along unless --no-original or settings exportOriginal is false
   jobs [--limit N]     job folders, newest first
-  fidelity <capture.png> <generated.png> [--map <png>] [--review claude|codex|both] [--allow <text>...] [--json]
+  fidelity --job <job folder> [--cand N] [--map <png>] [--review claude|codex|both] [--allow <text>...] [--json]
+  fidelity <capture.png> <raw.png> [...]
                        does the picture keep the capture's parts and add nothing (strict limits);
-                       --review also asks an LLM to list added, resized and missing parts
+                       --review also asks an LLM to list added, resized and missing parts.
+                       --job compares what the app compares (the capture and the candidate's raw
+                       picture); a finished icon (post/cand-NN/master-1024.png) given directly is
+                       taken back to its job, since its outline and layout differ from the capture
   hub [--json]         the projects Unity Hub lists
   packs [--json]       style packs (the default one and local ones)
   home [--json]        the tool's home folder and settings file

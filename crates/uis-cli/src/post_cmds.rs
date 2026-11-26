@@ -258,34 +258,64 @@ pub fn export_cmd(args: &Args) -> i32 {
 
 /// `uis fidelity <capture.png> <generated.png> [--map <png>]`: how faithful a picture is.
 pub fn fidelity_cmd(args: &Args) -> i32 {
-    let (Some(cap), Some(gen)) = (args.positional.get(1), args.positional.get(2)) else {
-        eprintln!("uis fidelity: give a capture and a generated picture\n\n{USAGE}");
-        return 2;
-    };
-    let open = |p: &str| uis_core::post::raster::Raster::open(Path::new(p));
-    let (cap, gen) = match (open(cap), open(gen)) {
-        (Ok(a), Ok(b)) => (a, b),
-        (Err(e), _) | (_, Err(e)) => return fail(args, &e),
-    };
-    let (m, map) = uis_core::fidelity::measure(&cap, &gen);
-    let limits = uis_core::packs::Pack::builtin().doc["checks"]["strict"].clone();
-    let c = |img: &uis_core::post::raster::Raster| {
-        let x = uis_core::checks::measure(img, [0.459, 0.216, 0.098]);
-        [x.saturation, x.value]
-    };
-    let (report, suspect) = uis_core::fidelity::check(&m, c(&cap), c(&gen), &limits);
-    if let Some(p) = args.value("--map") {
-        if let Err(e) = map.save(Path::new(p)) {
-            return fail(args, &e);
+    let home = Home::resolve();
+    // The pair the app compares: a job's capture and a candidate's raw picture (prepared the same
+    // way). A finished icon given directly is taken back to its job and candidate, since its
+    // outline and new layout would count as differences.
+    let mut job: Option<(PathBuf, u32)> = args.value("--job").map(|j| (PathBuf::from(j), args.value("--cand").and_then(|c| c.parse().ok()).unwrap_or(1)));
+    if job.is_none() {
+        if let Some(gen) = args.positional.get(2) {
+            if let Some((dir, cand)) = uis_core::jobs::job_of_finished_picture(Path::new(gen)) {
+                eprintln!(
+                    "note: {gen} is a finished icon (outline, new layout); comparing the capture with candidate {cand}'s raw picture of {} instead (same as the app). Use --job next time.",
+                    dir.display()
+                );
+                job = Some((dir, cand));
+            } else if Path::new(gen).file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("master-") || n.starts_with("icon-")) {
+                eprintln!("warning: {gen} looks like a finished icon; its outline and layout count as differences. Give the raw picture, or --job <job folder> [--cand N].");
+            }
         }
     }
+    let (cap_path, gen_path, m, report, suspect, allowed) = if let Some((dir, cand)) = &job {
+        let s = uis_core::settings::load(&home);
+        let f = match uis_core::jobs::candidate_fidelity(&home, &s, dir, *cand, args.value("--map").map(Path::new)) {
+            Ok(f) => f,
+            Err(e) => return fail(args, &e),
+        };
+        let mut allowed = args.all("--allow");
+        if allowed.is_empty() {
+            allowed = uis_core::generate::allowed_additions(dir);
+        }
+        (f.capture, f.raw, f.report.metrics, f.report.report, f.report.suspect, allowed)
+    } else {
+        let (Some(cap), Some(gen)) = (args.positional.get(1), args.positional.get(2)) else {
+            eprintln!("uis fidelity: give a capture and a raw picture, or --job <job folder> [--cand N]\n\n{USAGE}");
+            return 2;
+        };
+        let open = |p: &str| uis_core::post::raster::Raster::open(Path::new(p));
+        let (cap_img, gen_img) = match (open(cap), open(gen)) {
+            (Ok(a), Ok(b)) => (a, b),
+            (Err(e), _) | (_, Err(e)) => return fail(args, &e),
+        };
+        let (m, map) = uis_core::fidelity::measure(&cap_img, &gen_img);
+        let limits = uis_core::packs::Pack::builtin().doc["checks"]["strict"].clone();
+        let c = |img: &uis_core::post::raster::Raster| {
+            let x = uis_core::checks::measure(img, [0.459, 0.216, 0.098]);
+            [x.saturation, x.value]
+        };
+        let (report, suspect) = uis_core::fidelity::check(&m, c(&cap_img), c(&gen_img), &limits);
+        if let Some(p) = args.value("--map") {
+            if let Err(e) = map.save(Path::new(p)) {
+                return fail(args, &e);
+            }
+        }
+        (PathBuf::from(cap), PathBuf::from(gen), m, report, suspect, args.all("--allow"))
+    };
     let reviews = match args.value("--review") {
         Some(which) => {
-            let home = Home::resolve();
             let _ = home.ensure();
             let s = uis_core::settings::load(&home);
-            let allowed = args.all("--allow");
-            uis_core::review::reviews(&home, &s, which, Path::new(&args.positional[1]), Path::new(&args.positional[2]), &allowed)
+            uis_core::review::reviews(&home, &s, which, &cap_path, &gen_path, &allowed)
         }
         None => Vec::new(),
     };
@@ -305,7 +335,13 @@ pub fn fidelity_cmd(args: &Args) -> i32 {
         }
     }
     if args.json {
-        print_value(&json!({ "metrics": m, "pass": report.pass, "suspect": suspect, "failed": report.failed, "items": report.items, "reviews": reviews }), true);
+        print_value(
+            &json!({
+                "capture": cap_path, "generated": gen_path, "job": job.as_ref().map(|(d, c)| json!({ "dir": d, "cand": c })),
+                "metrics": m, "pass": report.pass, "suspect": suspect, "failed": report.failed, "items": report.items, "reviews": reviews
+            }),
+            true,
+        );
     } else {
         println!(
             "{}{}  profile {:.4}  foreignBlobs {}  foreign {:.3}  outsideParts {}  outside {:.3}  missing {:.3}  failed {:?}",
