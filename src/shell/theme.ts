@@ -18,7 +18,7 @@ export type ThemeBase = "light" | "dark";
 
 export const THEME_CHOICES: readonly ThemeChoice[] = ["system", "light", "dark"];
 
-/** Frond's eight shell tokens (same names and values as Frond). */
+/** Frond's eight shell tokens (Frond's names; the values are the neutral palette in theme/tokens.css). */
 export const SHELL_TOKENS = ["fg", "bg", "muted", "line", "accent", "on-accent", "danger", "sidebar-bg"] as const;
 
 /** This app's status tokens and the colors that used to be literals. */

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import tokensCss from "./theme/tokens.css?raw";
 import darkCss from "./theme/dark.css?raw";
+import baseCss from "./theme/base.css?raw";
 import bootJs from "../public/theme-boot.js?raw";
 import { PREFS_PREFIX } from "./prefs";
 import { COLOR_TOKEN_NAMES, oppositeChoice, resolveBase, THEME_MIRROR_KEY, themeTransitionCss } from "./theme";
@@ -30,6 +31,16 @@ function contrast(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
+const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+
+/** color-mix(in srgb, b t, a) */
+function mix(a: string, b: string, t: number): string {
+  const [x, y] = [channels(a), channels(b)];
+  return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join("");
+}
+
+const isGray = (hex: string) => new Set(channels(hex)).size === 1;
+
 const light = block(tokensCss, ":root {");
 const darkMedia = block(darkCss, ':root:not([data-theme="light"]) {');
 const dark = block(darkCss, ':root[data-theme="dark"] {');
@@ -45,9 +56,12 @@ describe("theme tokens", () => {
     expect(darkMedia).toEqual(dark);
   });
 
-  it("keep Frond's eight shell values", () => {
-    expect(light).toMatchObject({ fg: "#2c3333", bg: "#fcfdfc", accent: "#567e65", "sidebar-bg": "#f0f3f0" });
-    expect(dark).toMatchObject({ fg: "#e4eae4", bg: "#1b2221", accent: "#96bea1", "sidebar-bg": "#262e2c" });
+  it("keep the neutral palette: gray chrome, one pink accent", () => {
+    expect(light).toMatchObject({ fg: "#323232", bg: "#fdfdfd", accent: "#d12c6a", "sidebar-bg": "#f2f2f2" });
+    expect(dark).toMatchObject({ fg: "#e8e8e8", bg: "#212121", accent: "#ff6b9e", "sidebar-bg": "#2c2c2c" });
+    for (const p of [light, dark]) {
+      for (const k of ["fg", "bg", "muted", "line", "sidebar-bg"]) expect(isGray(p[k]), k).toBe(true);
+    }
   });
 
   for (const [name, p] of [
@@ -70,6 +84,13 @@ describe("theme tokens", () => {
       for (const mark of ["ok", "warn", "hot", "batch", "accent"]) {
         for (const back of ["bg", "sidebar-bg"]) expect(contrast(p[mark], p[back]), `${mark} on ${back}`).toBeGreaterThanOrEqual(3);
       }
+    });
+
+    it(`reach 3:1 for the focus ring in ${name}`, () => {
+      const m = /--ring:\s*color-mix\(in srgb, var\(--fg\) (\d+)%, var\(--bg\)\)/.exec(baseCss);
+      expect(m, "--ring in base.css").not.toBeNull();
+      const ring = mix(p.bg, p.fg, Number(m![1]) / 100);
+      for (const back of ["bg", "sidebar-bg"]) expect(contrast(ring, p[back]), `ring on ${back}`).toBeGreaterThanOrEqual(3);
     });
   }
 });

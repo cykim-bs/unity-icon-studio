@@ -1,6 +1,7 @@
 /*
- * Dark values of tokens.css. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author
- * (src/style.css dark blocks). Selector contract (same as Frond):
+ * Dark values of tokens.css: the photo capture tool's tokens (gray Well/Bg/Side/Line, Fg, Muted, pink
+ * Accent, Danger, Warn, the mint tag color as ok, the cool track color as info); see tokens.css.
+ * The selector contract is Frond's (https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author):
  *   dark = :root[data-theme="dark"], or the system is dark and :root is not [data-theme="light"].
  * theme.ts always sets data-theme after start; the media block covers the first paint when the
  * saved choice is "system" (src/public/theme-boot.js). Both blocks must stay identical
@@ -9,24 +10,24 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --fg: #e4eae4;
-    --bg: #1b2221;
-    --muted: #949a96;
-    --line: #474e4c;
-    --accent: #96bea1;
-    --on-accent: #1b2221;
-    --danger: #f85149;
-    --sidebar-bg: #262e2c;
-    --ok: #96bea1;
-    --warn: #e0a95b;
-    --hot: #ff7b72;
-    --info: #93c2f0;
+    --fg: #e8e8e8;
+    --bg: #212121;
+    --muted: #989898;
+    --line: #4c4c4c;
+    --accent: #ff6b9e;
+    --on-accent: #1a1a1a;
+    --danger: #f4736b;
+    --sidebar-bg: #2c2c2c;
+    --ok: #7fd1ae;
+    --warn: #d6a756;
+    --hot: #f4736b;
+    --info: #6f9bd1;
     --batch: #aab2f2;
-    --tint-warn: #2f3027;
-    --tint-warn-line: #564b32;
-    --tint-hot: #342c2a;
-    --tint-hot-line: #5f3d39;
-    --on-danger: #1b2221;
+    --tint-warn: #332e26;
+    --tint-warn-line: #574931;
+    --tint-hot: #362928;
+    --tint-hot-line: #603a37;
+    --on-danger: #1a1a1a;
     --caption-close: #c42b1c;
     --on-caption-close: #ffffff;
     color-scheme: dark;
@@ -34,24 +35,24 @@
 }
 
 :root[data-theme="dark"] {
-  --fg: #e4eae4;
-  --bg: #1b2221;
-  --muted: #949a96;
-  --line: #474e4c;
-  --accent: #96bea1;
-  --on-accent: #1b2221;
-  --danger: #f85149;
-  --sidebar-bg: #262e2c;
-  --ok: #96bea1;
-  --warn: #e0a95b;
-  --hot: #ff7b72;
-  --info: #93c2f0;
+  --fg: #e8e8e8;
+  --bg: #212121;
+  --muted: #989898;
+  --line: #4c4c4c;
+  --accent: #ff6b9e;
+  --on-accent: #1a1a1a;
+  --danger: #f4736b;
+  --sidebar-bg: #2c2c2c;
+  --ok: #7fd1ae;
+  --warn: #d6a756;
+  --hot: #f4736b;
+  --info: #6f9bd1;
   --batch: #aab2f2;
-  --tint-warn: #2f3027;
-  --tint-warn-line: #564b32;
-  --tint-hot: #342c2a;
-  --tint-hot-line: #5f3d39;
-  --on-danger: #1b2221;
+  --tint-warn: #332e26;
+  --tint-warn-line: #574931;
+  --tint-hot: #362928;
+  --tint-hot-line: #603a37;
+  --on-danger: #1a1a1a;
   --caption-close: #c42b1c;
   --on-caption-close: #ffffff;
   color-scheme: dark;

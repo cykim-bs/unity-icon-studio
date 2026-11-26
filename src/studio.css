@@ -53,12 +53,12 @@
   background: color-mix(in srgb, var(--fg) 5%, var(--bg));
 }
 .pick-btn.on {
-  border-color: var(--accent);
+  border-color: var(--muted);
   background: var(--selected-bg);
   font-weight: 600;
 }
 .pick-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 .pick-label {
@@ -91,7 +91,7 @@
   color: var(--muted);
 }
 #find:focus-within {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -1px;
   border-color: transparent;
 }
@@ -134,13 +134,13 @@
   background: color-mix(in srgb, var(--fg) 5%, var(--bg));
 }
 .chip-btn[aria-checked="true"] {
-  border-color: var(--accent);
+  border-color: var(--muted);
   background: var(--selected-bg);
   color: var(--fg);
   font-weight: 600;
 }
 .chip-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -162,7 +162,7 @@
   color: var(--fg);
 }
 .link-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -219,7 +219,7 @@
   filter: brightness(1.08);
 }
 .act-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -341,7 +341,7 @@
 
 /* ---- chips as toggles (several on at once) ---- */
 .chip-btn[aria-pressed="true"] {
-  border-color: var(--accent);
+  border-color: var(--muted);
   background: var(--selected-bg);
   color: var(--fg);
 }
@@ -400,7 +400,7 @@
   background: var(--selected-bg);
 }
 .project-row:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 .project-head {
   display: flex;
@@ -453,7 +453,7 @@
   background: var(--selected-bg);
 }
 #list:focus-visible .prefab-cell.focus {
-  box-shadow: inset 0 0 0 2px var(--accent);
+  box-shadow: inset 0 0 0 2px var(--ring);
 }
 .prefab-well {
   display: grid;
@@ -886,7 +886,7 @@ dl.details dd {
   cursor: pointer;
 }
 .cand-tab[aria-selected="true"] {
-  border-color: var(--accent);
+  border-color: var(--muted);
   background: var(--selected-bg);
 }
 .cand-score {
@@ -914,10 +914,10 @@ dl.details dd {
   background: #ffffff;
 }
 .capture-preview.bg-black {
-  background: #151817;
+  background: #181818;
 }
 .capture-preview:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 .icon-preview {
@@ -1192,7 +1192,7 @@ dl.details dd {
   font-size: 12px;
 }
 .camera-box:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 4px;
 }
 .camera-head {

@@ -89,7 +89,7 @@
   pointer-events: none;
 }
 .icon-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 .icon-btn svg {
@@ -271,7 +271,7 @@
   font-weight: 600;
 }
 .view-tab:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 
@@ -305,7 +305,7 @@
   content: "";
   position: absolute;
   inset: 0 -2px 0 -1px;
-  background: var(--accent);
+  background: var(--ring);
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -387,7 +387,7 @@
   background: var(--pressed);
 }
 #window-controls button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 #window-controls #win-close:hover,
@@ -406,7 +406,7 @@
   flex-wrap: wrap;
   gap: 6px 10px;
   padding: 6px 8px 6px 12px;
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  background: color-mix(in srgb, var(--fg) 7%, var(--bg));
   border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
@@ -437,7 +437,7 @@
   background: color-mix(in srgb, var(--fg) 7%, var(--bg));
 }
 #banner-actions button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 
@@ -488,7 +488,7 @@
   text-decoration: underline;
 }
 #statusbar button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 1px;
 }
 #statusbar [hidden],
@@ -634,7 +634,7 @@
   display: none;
 }
 .modal button:not(.icon-btn):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 .modal button.primary {
@@ -698,9 +698,9 @@
   font: inherit;
 }
 #dialog-input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -1px;
-  border-color: var(--accent);
+  border-color: var(--ring);
 }
 #dialog-input::placeholder {
   color: var(--muted);
@@ -795,7 +795,7 @@
   font-weight: 600;
 }
 #settings-tabs .settings-tab:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -2px;
 }
 #settings-panels {
@@ -871,9 +871,9 @@
 }
 .setting-control select:focus-visible,
 .setting-control input:not([type="checkbox"]):focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: -1px;
-  border-color: var(--accent);
+  border-color: var(--ring);
 }
 .setting-unit {
   min-width: 28px;
@@ -915,19 +915,19 @@
   transition: transform 120ms var(--panel-ease);
 }
 .switch:checked {
-  border-color: var(--accent);
-  background: var(--accent);
+  border-color: var(--fg);
+  background: var(--fg);
 }
 .switch:checked::before {
   transform: translateX(14px);
-  background: var(--on-accent);
+  background: var(--bg);
 }
 .switch:disabled {
   cursor: default;
   opacity: 0.5;
 }
 .switch:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
 @media (prefers-reduced-motion: reduce) {

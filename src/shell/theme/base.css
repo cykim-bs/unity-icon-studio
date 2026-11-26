@@ -4,10 +4,13 @@
  */
 
 :root {
-  /* derived from the color tokens; hover and pressed overlays follow whatever is under them */
+  /* derived from the color tokens; hover and pressed overlays follow whatever is under them.
+     Selected rows and chips take the pressed amount of fg (no hue); focus rings are fg mixed into bg
+     (3:1 on bg and sidebar-bg in both themes) instead of the accent, which stays for the main action. */
   --hover: color-mix(in srgb, var(--fg) 7%, transparent);
   --pressed: color-mix(in srgb, var(--fg) 12%, transparent);
-  --selected-bg: color-mix(in srgb, var(--accent) 13%, var(--bg));
+  --selected-bg: color-mix(in srgb, var(--fg) 12%, var(--bg));
+  --ring: color-mix(in srgb, var(--fg) 60%, var(--bg));
   --font-ui: "Pretendard", "Malgun Gothic", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "Cascadia Code", Consolas, "Courier New", monospace, "Malgun Gothic";
 }
