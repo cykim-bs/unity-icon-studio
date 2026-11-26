@@ -57,30 +57,39 @@ pub fn settings_reset(keys: Vec<String>) -> Result<Settings, String> {
     settings::reset(&home(), &keys)
 }
 
-/// True when `path` is inside `root` (both made absolute; case-insensitive on Windows).
+/// True when `path` is inside `root` (or is `root`). Fails closed:
+/// - a `..` step anywhere is refused (Windows reads `/` and `\\` alike);
+/// - `root` must resolve on disk (links and short names resolved);
+/// - the path is resolved from its deepest existing folder (links resolved there too, so a link
+///   inside the root that points out is outside); the missing rest may only be plain names;
+/// - nothing that cannot be resolved is compared as text: it is outside.
 fn is_inside(path: &Path, root: &Path) -> bool {
-    // `..` is refused outright: a path that does not exist cannot be resolved on disk, and its
-    // text could start with the root and still point elsewhere
-    if path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+    use std::path::Component;
+    if path.components().any(|c| matches!(c, Component::ParentDir)) {
         return false;
     }
-    let norm = |p: &Path| -> String {
-        // The path itself when it exists, else its parent folder (which must exist) and its name,
-        // so links and short names are resolved like the root's
-        let abs = std::fs::canonicalize(p).unwrap_or_else(|_| match (p.parent().and_then(|d| std::fs::canonicalize(d).ok()), p.file_name()) {
-            (Some(dir), Some(name)) => dir.join(name),
-            _ => p.to_path_buf(),
-        });
-        let text = abs.to_string_lossy().replace('/', "\\");
-        let text = text.trim_start_matches(r"\\?\").trim_end_matches('\\').to_string();
-        if cfg!(windows) {
-            text.to_lowercase()
-        } else {
-            text
+    let Ok(root) = std::fs::canonicalize(root) else { return false };
+    let mut existing = path;
+    let mut rest: Vec<std::ffi::OsString> = Vec::new();
+    let resolved = loop {
+        if let Ok(c) = std::fs::canonicalize(existing) {
+            break c;
+        }
+        match existing.components().next_back() {
+            Some(Component::Normal(name)) => rest.push(name.to_os_string()),
+            Some(Component::CurDir) => {}
+            _ => return false,
+        }
+        match existing.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => existing = parent,
+            _ => return false,
         }
     };
-    let (p, r) = (norm(path), norm(root));
-    p == r || p.starts_with(&(r + "\\"))
+    let mut full = resolved;
+    for name in rest.into_iter().rev() {
+        full.push(name);
+    }
+    full.starts_with(&root)
 }
 
 /// Opens a folder or file in Explorer, only inside the tool's home, the work and export folders
@@ -120,10 +129,17 @@ mod tests {
 
     #[test]
     fn inside_checks_whole_folder_names() {
-        assert!(is_inside(Path::new("C:/fake/a/b/c.png"), Path::new("C:/fake/a/b")));
-        assert!(is_inside(Path::new("c:/FAKE/A/B"), Path::new("C:/fake/a/b/")));
-        assert!(!is_inside(Path::new("C:/fake/a/bc/d"), Path::new("C:/fake/a/b")));
-        assert!(!is_inside(Path::new("C:/fake/other"), Path::new("C:/fake/a")));
+        let root = std::env::temp_dir().join(format!("uis-names-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("a/b")).unwrap();
+        std::fs::create_dir_all(root.join("a/bc")).unwrap();
+        assert!(is_inside(&root.join("a/b/c.png"), &root.join("a/b")));
+        assert!(is_inside(&root.join("a/b"), &root.join("a/b/")));
+        assert!(!is_inside(&root.join("a/bc/d"), &root.join("a/b")), "a folder name that only starts the same");
+        assert!(!is_inside(&root.join("other"), &root.join("a")));
+        // a root that does not exist holds nothing
+        assert!(!is_inside(&root.join("none/x"), &root.join("none")));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
@@ -136,8 +152,13 @@ mod tests {
         // a missing file whose text starts with the root but steps out of it
         assert!(!is_inside(&home.join("work").join("..").join("..").join("secret").join("x.png"), &home));
         assert!(!is_inside(&home.join("..").join("secret"), &home));
-        // a missing file in a real folder inside is still inside
+        // forward slashes are separators too
+        assert!(!is_inside(Path::new(&format!("{}/work/../../secret/x.png", home.display())), &home));
+        // a missing file in a real folder inside is still inside, a missing folder chain too
         assert!(is_inside(&home.join("work").join("not-yet.png"), &home));
+        assert!(is_inside(&home.join("work").join("new").join("deeper").join("x.png"), &home));
+        // a relative path resolves against the current folder, not the root
+        assert!(!is_inside(Path::new("work/x.png"), &home));
         let _ = std::fs::remove_dir_all(&root);
     }
 }
