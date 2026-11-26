@@ -3,8 +3,10 @@
 //! `pass`, decides from those lists; a failed picture gets a correction sentence for one more try.
 //!
 //! Judging (each item has a severity, `minor` or `major`):
-//! - fails: anything added that the note did not ask for; a part missing (`major`, or two or more);
-//!   a part grown, shrunk, thickened, thinned or moved (`major`, or three or more).
+//! - fails: something added that the note did not ask for (`major`, or two or more); a part missing
+//!   (`major`, or two or more); a part grown, shrunk, thickened, thinned or moved (`major`, or three
+//!   or more). Measured on real pairs: sparkles and hearts come back `major` from both CLIs; a
+//!   single `minor` addition was a disputed pebble.
 //! - notes only: `reshaped` parts and changed patterns.
 
 use serde::Serialize;
@@ -96,13 +98,19 @@ pub fn judge(answer: &Value, allowed: &[String]) -> (bool, Vec<Finding>, Vec<Fin
     let s = |v: &Value, k: &str| v.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     let sev = |v: &Value| if s(v, "severity") == "minor" { "minor".to_string() } else { "major".to_string() };
     let (mut failing, mut notes) = (Vec::new(), Vec::new());
+    let mut added = Vec::new();
     for a in list("added") {
         let f = Finding { kind: "added".into(), what: s(&a, "what"), detail: s(&a, "where"), severity: sev(&a) };
         if allowed_by(&f.what, allowed) {
             notes.push(f);
         } else {
-            failing.push(f);
+            added.push(f);
         }
+    }
+    if added.iter().any(|a| a.severity == "major") || added.len() >= 2 {
+        failing.extend(added);
+    } else {
+        notes.extend(added);
     }
     let missing: Vec<Finding> = list("missing").iter().map(|m| Finding { kind: "missing".into(), what: s(m, "what"), detail: s(m, "where"), severity: sev(m) }).collect();
     if missing.iter().any(|m| m.severity == "major") || missing.len() >= 2 {
@@ -240,9 +248,13 @@ mod tests {
 
     #[test]
     fn added_things_fail_unless_the_note_asked() {
-        let a = answer(json!([{ "what": "Yellow sparkle", "where": "top right", "severity": "minor" }]), json!([]), json!([]));
+        let a = answer(json!([{ "what": "Yellow sparkle", "where": "top right", "severity": "major" }]), json!([]), json!([]));
         let (pass, failing, notes) = judge(&a, &[]);
         assert!(!pass && failing.len() == 1 && notes.len() == 1, "{failing:?} {notes:?}");
+        let pebble = answer(json!([{ "what": "small grey rock", "where": "left", "severity": "minor" }]), json!([]), json!([]));
+        assert!(judge(&pebble, &[]).0, "one small addition is a note");
+        let two = answer(json!([{ "what": "pebble", "where": "left", "severity": "minor" }, { "what": "leaf", "where": "right", "severity": "minor" }]), json!([]), json!([]));
+        assert!(!judge(&two, &[]).0);
         let b = answer(json!([{ "what": "A layer of snow", "where": "roof", "severity": "major" }]), json!([]), json!([]));
         assert!(judge(&b, &["snow on the roof".into()]).0);
     }
