@@ -82,7 +82,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 4. **첨언(선택):** 비워 두면 고정 프롬프트를 그대로 보냅니다. 적으면 「재가공 미리보기」(Ctrl+Shift+Enter)로 바뀐 문장·더한 문장·반영하지 않은 부분을 그림 없이 먼저 볼 수 있습니다.
 5. **아이콘 만들기**(Ctrl+Enter): 촬영 → 프롬프트 → 재가공 → 생성 → 후처리 → 검사가 차례로 진행되고 단계마다 시간이 보입니다. Esc로 멈출 수 있습니다(촬영 중이면 이번 묶음이 끝난 뒤 멈춥니다).
 6. **결과:** 후보별 검사 통과 수와 「추천」, 최종 256·128·64px, 「생성 원본」, 검사 표가 나옵니다. 외곽선·배경만 바꿔 「후처리 다시」를 할 수 있습니다(그림을 다시 만들지 않음).
-7. **내보내기**(Ctrl+E): 파일 이름·크기(256·512·1024)·폴더를 정해 내보냅니다. Unity 프로젝트 안 폴더는 거부합니다.
+7. **내보내기**(Ctrl+E): 파일 이름·크기(256·512)·폴더를 정해 내보냅니다. 「1024 원본 함께」(기본 켬)는 크기를 줄이기 전 1024px 그림도 `_1024` 이름으로 씁니다(명령줄과 같음). Unity 프로젝트 안 폴더는 거부합니다.
 8. **지난 작업:** 왼쪽 「지난 작업」 탭(Ctrl+2)에서 이전 결과를 다시 열어 다시 내보내거나, 후처리만 다시 하거나, 같은 설정으로 다시 만들 수 있습니다.
 
 ![재가공 미리보기: 바뀐 문장·더한 문장·반영하지 않은 부분(가짜 샘플 데이터)](docs/assets/screen-rewrite.webp)
@@ -155,7 +155,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 | 방식 | 언제 | 프로젝트에 남는 것 |
 |---|---|---|
 | **열린 에디터** | 프로젝트가 열려 있고 `com.unity.pipeline`이 있을 때 | 없음. 촬영 스크립트와 작업 파일은 도구 폴더에 두고 `unity` CLI의 `script run`으로 실행합니다 |
-| **배치모드** | 프로젝트가 닫혀 있을 때 | 실행하는 동안만 미추적 임시 폴더 `Assets/__UnityIconStudioCapture/Editor/`(스크립트 1개 + asmdef)를 두고, 끝나면 지웁니다. Unity가 다시 쓴 추적 파일(`*.mat`, `*.asset`, `*.meta`, `ProjectSettings/*` 중 시작 때 깨끗했던 것)은 `git diff` 패치로 도구 폴더에 백업한 뒤 되돌립니다 |
+| **배치모드** | 프로젝트가 닫혀 있을 때 | 실행하는 동안만 미추적 임시 폴더 `Assets/__UnityIconStudioCapture/Editor/`(스크립트 1개 + asmdef)를 두고, 끝나면 지웁니다. Unity가 다시 쓴 추적 파일(`*.mat`, `*.asset`, `*.meta`, `ProjectSettings/*` 중 시작 때 깨끗했던 것)은 `git diff` 패치로 도구 폴더에 백업한 뒤 되돌립니다. 이름과 상관없이 **줄바꿈만 바뀐** 추적 파일(내용이 HEAD와 같음)도 원래 바이트를 백업하고 되돌립니다. 그 밖에 실행 중에 바뀐 파일은 건드리지 않고 화면 배너와 명령줄 경고로 목록을 보입니다 |
 
 - 프로젝트가 열려 있는데 열린 에디터로 찍을 수 없으면(패키지 없음, 시작 중) 찍지 않고 이유를 보여 줍니다. 도구는 일반 에디터를 **열거나 닫지 않습니다.**
 - Unity는 **강제로 끝내지 않습니다.** 배치 촬영이 시간 제한(기본 30분)을 넘기면 기다리기만 멈추고, Unity가 끝난 뒤 다음 시작 때 정리합니다(앱 배너 또는 `uis recover`).
@@ -170,7 +170,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 |---|---|---|
 | `language`, `theme` | `auto`, `system` | 화면 언어(한국어·영어), 테마 |
 | `workDir` | 도구 폴더 `work` | 실행 폴더(촬영본·프롬프트·생성 원본·후처리·검사) |
-| `exportDir`, `exportName`, `exportSizes` | 없음, `icon_{prefab}`, `[256]` | 내보내기 폴더·이름 규칙·크기 |
+| `exportDir`, `exportName`, `exportSizes`, `exportOriginal` | 없음, `icon_{prefab}`, `[256]`, `true` | 내보내기 폴더·이름 규칙·크기·1024 원본 함께 |
 | `capture.mode` | `auto` | `auto` / `attach`(열린 에디터만) / `batch`(배치만) |
 | `capture.editors` | `{}` | Unity 버전 → `Unity.exe` 경로(자동으로 못 찾을 때) |
 | `capture.batchTimeoutMin`, `capture.restoreTrackedFiles` | `30`, `true` | 배치 대기 시간, 추적 파일 되돌리기 |
@@ -195,7 +195,8 @@ cargo run -q -p uis-cli -- help
 
 `scan`, `probe`, `camera`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub` 명령이 있습니다.
 `camera --project <폴더> --prefab <에셋> [--set pitch=45 --set yawSign=-1 --set rotation=270,0,0] [--reset]`는 구도 칸과 같은 값을 보고 바꿉니다.
-`run`은 `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N`, `--capture <png> --kind <종류>`(촬영 대신 그 그림)을 받고, `fidelity <촬영본> <생성본> [--review both]`는 충실도 측정과 검수만 합니다.
+`run`은 `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N`, `--capture <png> --kind <종류>`(촬영 대신 그 그림)을 받고, `fidelity --job <작업 폴더> [--cand N] [--review both]`는 앱과 같은 쌍(촬영본과 그 후보의 **생성 원본**)으로 충실도 측정과 검수만 합니다. 외곽선·재배치가 끝난 `post\cand-NN\master-1024.png`를 직접 주면 그 작업의 생성 원본으로 바꿔 비교합니다(후처리본은 외곽선 때문에 원본과 다르게 나옴).
+`export`도 1024 원본을 함께 씁니다(`--no-original`로 끔).
 
 ## 계정과 약관
 

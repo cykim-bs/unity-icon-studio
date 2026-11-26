@@ -86,7 +86,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 4. **Note (optional):** leave it empty to send the fixed prompt as it is. With a note, 「Preview rewrite」 (Ctrl+Shift+Enter) shows the changed and added sentences and what was left out, without a picture.
 5. **Make icon** (Ctrl+Enter): capture → prompt → rewrite → generate → finish → check, each step with its time. Esc stops it (a capture finishes its request first).
 6. **Result:** candidates with passed checks and 「Best」, the icon at 256, 128 and 64 px, the 「Raw picture」, the checks table. 「Finish again」 changes only the outline or background (no new picture).
-7. **Export** (Ctrl+E): file name, sizes (256, 512, 1024) and folder. Folders inside a Unity project are refused.
+7. **Export** (Ctrl+E): file name, sizes (256, 512) and folder. 「1024 original too」 (on by default) also writes the 1024 px picture the sizes are made from, named with `_1024` (like the command line). Folders inside a Unity project are refused.
 8. **Runs:** the 「Runs」 tab (Ctrl+2) opens earlier results: export again, finish again, or run again with the same settings.
 
 With several prefabs picked, 「Make N icons」 captures them in one request and makes the pictures one by one. A usage limit stops the items still waiting.
@@ -153,7 +153,7 @@ A style pack is a JSON file with the camera per kind, the prompt's sentence bloc
 | Way | When | Left in the project |
 |---|---|---|
 | **Open editor** | The project is open and has `com.unity.pipeline` | Nothing. The capture script and job file stay in the tool folder and run through the `unity` CLI's `script run` |
-| **Batch mode** | The project is closed | Only while it runs: an untracked folder `Assets/__UnityIconStudioCapture/Editor/` (one script + an asmdef), removed afterwards. Tracked files Unity rewrote (`*.mat`, `*.asset`, `*.meta`, `ProjectSettings/*` that were clean at the start) are saved as a `git diff` patch in the tool folder and put back |
+| **Batch mode** | The project is closed | Only while it runs: an untracked folder `Assets/__UnityIconStudioCapture/Editor/` (one script + an asmdef), removed afterwards. Tracked files Unity rewrote (`*.mat`, `*.asset`, `*.meta`, `ProjectSettings/*` that were clean at the start) are saved as a `git diff` patch in the tool folder and put back. Tracked files whose **line endings alone** changed (the content is HEAD's), whatever their name, are put back too after their bytes are copied aside. Any other file the run changed is left alone and listed in a banner and a command line warning |
 
 - When the project is open but cannot be captured in the editor (no package, still starting), the app does not capture and says why. It never **opens or closes** your editor.
 - Unity is **never ended by force**. When a batch capture runs past its limit (30 min by default) the app only stops waiting; once Unity ends, the next start cleans up (a banner, or `uis recover`).
@@ -168,7 +168,7 @@ The settings file is `%USERPROFILE%\.unity-icon-studio\settings.json` (the envir
 |---|---|---|
 | `language`, `theme` | `auto`, `system` | Screen language (Korean, English), theme |
 | `workDir` | `work` in the tool folder | Job folders (capture, prompt, raw picture, finish, checks) |
-| `exportDir`, `exportName`, `exportSizes` | none, `icon_{prefab}`, `[256]` | Export folder, name rule, sizes |
+| `exportDir`, `exportName`, `exportSizes`, `exportOriginal` | none, `icon_{prefab}`, `[256]`, `true` | Export folder, name rule, sizes, the 1024 original too |
 | `capture.mode` | `auto` | `auto` / `attach` (open editor only) / `batch` (batch only) |
 | `capture.editors` | `{}` | Unity version → `Unity.exe` (when it is not found) |
 | `capture.batchTimeoutMin`, `capture.restoreTrackedFiles` | `30`, `true` | Batch wait, putting rewritten tracked files back |
@@ -193,7 +193,8 @@ cargo run -q -p uis-cli -- help
 
 Commands: `scan`, `probe`, `camera`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub`.
 `camera --project <folder> --prefab <asset> [--set pitch=45 --set yawSign=-1 --set rotation=270,0,0] [--reset]` shows and changes the same values as the Composition box.
-`run` takes `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N` and `--capture <png> --kind <kind>` (that picture instead of a capture); `fidelity <capture> <generated> [--review both]` only measures and reviews.
+`run` takes `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N` and `--capture <png> --kind <kind>` (that picture instead of a capture); `fidelity --job <job folder> [--cand N] [--review both]` only measures and reviews, on the pair the app compares (the capture and the candidate's **raw picture**). A finished `post\cand-NN\master-1024.png` given directly is taken back to its job's raw picture (a finished icon's outline would count as a difference).
+`export` writes the 1024 original too (`--no-original` turns it off).
 
 ## Accounts and terms
 
