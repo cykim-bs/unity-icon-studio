@@ -433,3 +433,24 @@ export interface Assembled {
   text: string;
   addable: string[];
 }
+
+/** What a person changed for one prefab (projects.rs Override). */
+export interface CameraOverride {
+  kind?: string;
+  yawSign?: number;
+  rotation?: [number, number, number];
+  front?: string;
+  yaw?: number;
+  pitch?: number;
+  projection?: string;
+  fov?: number;
+}
+
+/** The camera of one prefab (src-tauri prefab_camera): the kind's preset, with its rule, a
+ * person's values and what a capture uses now. */
+export interface CameraView {
+  preset: Record<string, unknown>;
+  rule: Record<string, unknown>;
+  person: CameraOverride | null;
+  effective: Record<string, unknown>;
+}

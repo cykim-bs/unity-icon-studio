@@ -10,12 +10,13 @@
 import { capturable, captureErrorText, itemErrorText } from "../capture-text";
 import { renderChecks } from "../components/checks-table";
 import { renderPromptDiff } from "../components/prompt-diff";
+import { renderCameraBox } from "../components/camera-box";
 import { renderStepper } from "../components/stepper";
 import { t } from "../i18n";
 import { KIND_CHIPS } from "../prefab-filter";
 import { failureText, generateErrorText, readyRow } from "../prompt-text";
 import { runCounts, type ItemRunView, type RunView } from "../run-state";
-import type { ExportReport, Failure, PackSummary, PostJobReport, PrefabItem, ProjectSummary, Readiness, RewriteReport } from "../types";
+import type { CameraView, ExportReport, Failure, PackSummary, PostJobReport, PrefabItem, ProjectSummary, Readiness, RewriteReport } from "../types";
 import { modeText, reasonText } from "./projects";
 
 /** Capture state of the open project, kept by the page (main.ts). */
@@ -31,6 +32,8 @@ export interface CaptureView {
   failures: Record<string, string>;
   /** The capture PNG on disk, by asset path (what generation starts from) */
   outputs: Record<string, string>;
+  /** The composition changed after this capture, by asset path: a new capture is needed */
+  stale?: Record<string, boolean>;
 }
 
 /** One candidate of a result. */
@@ -105,6 +108,8 @@ export interface DetailsView {
   exportRule: string;
   /** A job opened from the 「Runs」 tab (shown instead of the picked prefab) */
   opened: ResultView | null;
+  /** The camera of the one picked prefab (null while it loads) */
+  camera?: CameraView | null;
 }
 
 export type RetryKind = "otherCli" | "withoutNote" | "again" | "noRefs";
@@ -137,6 +142,10 @@ export interface DetailsHooks {
   checkReady(): void;
   closeOpened(): void;
   rerunOpened(): void;
+  /** A person's composition values (`null` clears a key), all cleared, or a note's camera wish */
+  setCamera(item: PrefabItem, patch: Record<string, unknown>): void;
+  resetCamera(item: PrefabItem): void;
+  cameraHint(item: PrefabItem, camera: string): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text = ""): HTMLElementTagNameMap[K] {
@@ -216,7 +225,8 @@ function bgChips(view: DetailsView, hooks: DetailsHooks): HTMLElement {
 }
 
 function previewBox(item: PrefabItem, cap: CaptureView, bg: string): HTMLElement {
-  const box = el("figure", `capture-preview bg-${bg}`);
+  const box = el("figure", `capture-preview bg-${bg}${cap.stale?.[item.path] ? " stale" : ""}`);
+  if (cap.stale?.[item.path]) box.title = t("camera.stale");
   box.id = "capture-preview";
   box.tabIndex = 0;
   const src = cap.images[item.path];
@@ -327,11 +337,11 @@ function makeSection(item: PrefabItem, view: DetailsView, hooks: DetailsHooks): 
     el("span", "muted", t("make.rewriter")),
     rewriter,
     preview,
-    button(t("make.showPrompt"), () => hooks.showPrompt(item), "link-btn"),
+    Object.assign(button(t("make.showPrompt"), () => hooks.showPrompt(item), "link-btn"), { id: "show-prompt-btn" }),
   );
   box.append(note, hint, cliRow);
   // A failed rewrite says why in the failure box below (with its buttons)
-  if (g.diff && !(g.diff.failure && g.errorStage === "rewrite")) box.append(renderPromptDiff(g.diff));
+  if (g.diff && !(g.diff.failure && g.errorStage === "rewrite")) box.append(renderPromptDiff(g.diff, busy ? undefined : (c) => hooks.cameraHint(item, c)));
   box.append(optionsRow(g, busy, hooks));
   const actions = el("div", "body-actions make-actions");
   const blocked = view.project?.mode === "blocked" && !view.capture.outputs[item.path];
@@ -609,7 +619,17 @@ function one(item: PrefabItem, hooks: DetailsHooks, view: DetailsView): HTMLElem
     out.push(top, previewBox(item, cap, view.bg));
   }
   out.push(facts(rows), actions, ...captureNotes(cap));
-  if (ok) out.push(makeSection(item, view, hooks));
+  if (ok) {
+    const busy = cap.running || !!view.run?.running;
+    out.push(
+      renderCameraBox(view.camera ?? null, !!cap.stale?.[item.path], busy, {
+        set: (patch) => hooks.setCamera(item, patch),
+        reset: () => hooks.resetCamera(item),
+        retake: () => hooks.capture([item]),
+      }),
+    );
+    out.push(makeSection(item, view, hooks));
+  }
   else out.push(el("p", "body-hint warn-text", t("details.not3d")));
   return out;
 }

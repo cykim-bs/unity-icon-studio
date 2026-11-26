@@ -15,7 +15,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = "", text 
   return node;
 }
 
-export function renderPromptDiff(r: RewriteReport): HTMLElement {
+/** `onCamera`: the note asks for another camera — a button that changes the composition and captures again. */
+export function renderPromptDiff(r: RewriteReport, onCamera?: (camera: string) => void): HTMLElement {
   const box = el("section", "prompt-diff");
   box.setAttribute("aria-label", t("prompt.diffTitle"));
   if (!r.cli && r.ok) {
@@ -55,7 +56,17 @@ export function renderPromptDiff(r: RewriteReport): HTMLElement {
     box.append(rej);
   }
   if (r.diff.outline === "off") box.append(el("p", "warn-text", t("prompt.outlineOff")));
-  if (r.diff.camera !== "keep") box.append(el("p", "body-hint", t("prompt.cameraHint")));
+  if (r.diff.camera !== "keep") {
+    const hint = el("p", "body-hint camera-hint", t("prompt.cameraHint"));
+    if (onCamera && (r.diff.camera === "front" || r.diff.camera === "flip")) {
+      const b = el("button", "link-btn", t(`prompt.cameraApply.${r.diff.camera}`));
+      b.id = "cam-hint";
+      (b as HTMLButtonElement).type = "button";
+      b.addEventListener("click", () => onCamera(r.diff.camera));
+      hint.append(document.createTextNode(" "), b);
+    }
+    box.append(hint);
+  }
   const locked = r.diff.sentences.filter((s) => s.locked).length;
   box.append(el("p", "muted", t("prompt.lockedKept", { n: locked })));
   return box;

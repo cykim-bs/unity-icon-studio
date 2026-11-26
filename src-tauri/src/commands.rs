@@ -196,6 +196,24 @@ pub fn prefab_override(id: String, guid: String, patch: Map<String, Value>) -> R
     projects::set_override(&home(), &id, &guid, &patch)
 }
 
+/// The camera of one prefab: the kind's preset, its rule's values, what a person changed and the
+/// values a capture uses now (the same merge as the capture job).
+#[tauri::command]
+pub fn prefab_camera(id: String, kind: String, rule: Option<String>, guid: Option<String>) -> Result<Value, String> {
+    let home = home();
+    let entry = projects::entry(&home, &id)?;
+    let pack = uis_core::packs::load(&home, &entry.pack_id).map_err(|e| format!("pack:{e}"))?;
+    let rules = pack.kind_rules();
+    let rule_extra = rule.as_ref().and_then(|p| rules.iter().find(|r| &r.pattern == p)).map(|r| r.extra.clone());
+    let person = guid
+        .as_ref()
+        .and_then(|g| projects::load_state(&home, &id).overrides.get(&g.to_ascii_lowercase()).cloned());
+    let preset = uis_core::capture::item_values(&pack, &kind, None, None);
+    let with_rule = uis_core::capture::item_values(&pack, &kind, rule_extra.as_ref(), None);
+    let effective = uis_core::capture::item_values(&pack, &kind, rule_extra.as_ref(), person.as_ref());
+    Ok(serde_json::json!({ "preset": preset, "rule": with_rule, "person": person, "effective": effective }))
+}
+
 /// The style pack a listed project uses.
 #[tauri::command]
 pub fn project_set_pack(id: String, pack_id: String) -> Result<ProjectSummary, String> {
@@ -342,19 +360,31 @@ pub async fn codex_copy_from_app(on_event: tauri::ipc::Channel<CopyProgress>) ->
     Ok(info)
 }
 
-fn assemble_for(home: &Home, pack_id: &str, kind: &str, yaw: Option<f64>, pitch: Option<f64>) -> Result<(uis_core::packs::Pack, Assembled), String> {
+/// `camera`: the item's capture values (`yaw`, `pitch`, `projection`, `fov`), so the CAMERA
+/// sentence shown is the one a capture with those values gets.
+fn assemble_for(
+    home: &Home,
+    pack_id: &str,
+    kind: &str,
+    yaw: Option<f64>,
+    pitch: Option<f64>,
+    camera: Option<&Map<String, Value>>,
+) -> Result<(uis_core::packs::Pack, Assembled), String> {
     let s = settings::load(home);
     let pack = uis_core::packs::load(home, pack_id).map_err(|e| format!("pack:{e}"))?;
     let refs = if s.generate.style_refs { uis_core::generate::pack_refs(&pack, None).len() } else { 0 };
-    let ctx = uis_core::generate::context(&pack, &s, kind, refs, yaw, pitch);
+    let mut ctx = uis_core::generate::context(&pack, &s, kind, refs, yaw, pitch);
+    if let Some(c) = camera {
+        ctx = ctx.with_capture(c);
+    }
     let fixed = uis_core::prompt::assemble(&pack, &ctx)?;
     Ok((pack, fixed))
 }
 
 /// The fixed prompt for a kind (no LLM).
 #[tauri::command]
-pub async fn prompt_preview(pack_id: String, kind: String, yaw: Option<f64>, pitch: Option<f64>) -> Result<Assembled, String> {
-    blocking(move || assemble_for(&home(), &pack_id, &kind, yaw, pitch).map(|(_, a)| a)).await
+pub async fn prompt_preview(pack_id: String, kind: String, yaw: Option<f64>, pitch: Option<f64>, camera: Option<Map<String, Value>>) -> Result<Assembled, String> {
+    blocking(move || assemble_for(&home(), &pack_id, &kind, yaw, pitch, camera.as_ref()).map(|(_, a)| a)).await
 }
 
 /// The note worked into the fixed prompt (an empty note calls nothing). No picture is made.
@@ -366,6 +396,7 @@ pub async fn prompt_rewrite(
     cli: Option<String>,
     yaw: Option<f64>,
     pitch: Option<f64>,
+    camera: Option<Map<String, Value>>,
 ) -> Result<RewriteReport, String> {
     let Some(_guard) = uis_core::proc::Busy::try_take(&LLM_BUSY) else {
         return Err("busy".into());
@@ -373,7 +404,7 @@ pub async fn prompt_rewrite(
     blocking(move || {
         let home = home();
         let s = settings::load(&home);
-        let (pack, fixed) = assemble_for(&home, &pack_id, &kind, yaw, pitch)?;
+        let (pack, fixed) = assemble_for(&home, &pack_id, &kind, yaw, pitch, camera.as_ref())?;
         let cli = cli.unwrap_or_else(|| s.llm.rewriter.clone());
         let clis = uis_core::cli::Clis { home: &home, settings: &s };
         Ok(uis_core::cli::rewrite(&pack, &fixed, &note, &cli, &clis))

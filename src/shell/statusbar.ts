@@ -48,6 +48,13 @@ export function flashStatus(message: string, ms = 2200): void {
   }, ms);
 }
 
+/** Ends the notice on screen now (its words were for another language). */
+export function endFlash(): void {
+  window.clearTimeout(flashTimer);
+  flashing = false;
+  paintBase();
+}
+
 export function isFlashing(): boolean {
   return flashing;
 }

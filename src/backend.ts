@@ -9,7 +9,7 @@
  * ?pick=<n> (pick the n-th prefab) ?empty (no project, for the empty state)
  */
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { Assembled, CaptureEvent, CaptureReport, CheckItem, CheckReport, CopyInfo, ExportReport, GenerateReport, JobDetail, JobSummary, PostJobReport, Readiness, RewriteReport, RunArgs, RunEvent, RunItem, RunReport } from "./types";
+import type { Assembled, CameraView, CaptureEvent, CaptureReport, CheckItem, CheckReport, CopyInfo, ExportReport, GenerateReport, JobDetail, JobSummary, PostJobReport, Readiness, RewriteReport, RunArgs, RunEvent, RunItem, RunReport } from "./types";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export const inTauri = typeof (window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ !== "undefined";
@@ -147,8 +147,16 @@ async function preview(cmd: string, args?: Record<string, unknown>): Promise<unk
     case "prompt_rewrite":
       await new Promise((resolve) => setTimeout(resolve, 400));
       return previewRewrite(String(args?.note ?? ""));
-    case "prefab_override":
-      return args?.patch ?? {};
+    case "prefab_override": {
+      const guid = String(args?.guid ?? "");
+      const next: Record<string, unknown> = { ...(previewOverrides[guid] ?? {}) };
+      for (const [k, v] of Object.entries((args?.patch as Record<string, unknown>) ?? {})) {
+        if (v === null) delete next[k];
+        else next[k] = v;
+      }
+      previewOverrides[guid] = next;
+      return next;
+    }
     case "settings_get":
       return structuredClone(PREVIEW_SETTINGS);
     case "settings_set":
@@ -248,8 +256,33 @@ async function previewGenerate(note: string): Promise<GenerateReport> {
 }
 
 /** The note worked into the fixed prompt; no picture. */
-export function promptRewrite(packId: string, kind: string, note: string, cli: string): Promise<RewriteReport> {
-  return call<RewriteReport>("prompt_rewrite", { packId, kind, note, cli });
+export function promptRewrite(packId: string, kind: string, note: string, cli: string, camera: Record<string, unknown> | null = null): Promise<RewriteReport> {
+  return call<RewriteReport>("prompt_rewrite", { packId, kind, note, cli, camera });
+}
+
+/** Made-up per-prefab camera choices of the browser preview, by guid. */
+const previewOverrides: Record<string, Record<string, unknown>> = {};
+
+/** The kind presets of the default pack (browser preview only). */
+const PREVIEW_PRESETS: Record<string, Record<string, unknown>> = {
+  building: { front: "+z", yaw: 28, pitch: 30, projection: "orthographic", fov: 20 },
+  prop: { front: "+z", yaw: 25, pitch: 18, projection: "orthographic", fov: 20 },
+  character: { front: "+z", yaw: 20, pitch: 10, projection: "orthographic", fov: 20 },
+  generic: { front: "+z", yaw: 28, pitch: 30, projection: "orthographic", fov: 20 },
+};
+
+/** The camera of one prefab: preset, rule, a person's values and the values a capture uses. */
+export function prefabCamera(id: string, kind: string, rule: string | null, guid: string | null): Promise<CameraView> {
+  if (inTauri) return invoke<CameraView>("prefab_camera", { id, kind, rule, guid });
+  const preset = { ...(PREVIEW_PRESETS[kind] ?? PREVIEW_PRESETS.generic) };
+  const person = (guid && previewOverrides[guid]) || null;
+  const effective: Record<string, unknown> = { ...preset };
+  if (person) {
+    for (const k of ["front", "rotation", "pitch", "projection", "fov"]) if (person[k] !== undefined) effective[k] = person[k];
+    if (typeof person.yaw === "number") effective.yaw = Math.abs(person.yaw) * Math.sign((preset.yaw as number) || 1);
+    if (typeof person.yawSign === "number") effective.yaw = Math.abs(effective.yaw as number) * (person.yawSign < 0 ? -1 : 1);
+  }
+  return Promise.resolve({ preset, rule: { ...preset }, person: person as CameraView["person"], effective });
 }
 
 /** A raw picture from the capture (prompt, rewrite when there is a note, Codex). */
@@ -294,7 +327,35 @@ async function previewPost(options: Record<string, unknown>, cand = 1): Promise<
   ];
   const report: CheckReport = { pass: items.every((i) => i.pass), failed: items.filter((i) => !i.pass).map((i) => i.id), outlineOnly: false, items, metrics: { outlinePx: stroke, outlineColor: "#753719" } };
   const gen = [previewItem("iou", "generate", 0.88, 0.8, null), previewItem("nativeAlpha", "generate", 1, 1, null)];
+  // Keep-the-capture pictures: made-up fidelity measures and one review (`?fail=fidelity` fails it)
+  const strict = options.fidelity !== "stylized";
+  const failFid = query.get("fail") === "fidelity" && cand === 1;
+  const fidItems = [
+    previewItem("fidelityProfile", "fidelity", failFid ? 0.031 : 0.006, null, 0.012),
+    previewItem("deltaSaturation", "fidelity", 0.04, -0.05, 0.15),
+    previewItem("deltaValue", "fidelity", 0.03, -0.08, 0.15),
+    previewItem("foreignBlobs", "fidelity", failFid ? 3 : 0, null, 2),
+    previewItem("outsideParts", "fidelity", 0, null, 1),
+  ];
+  const fidReport: CheckReport = { pass: fidItems.every((i) => i.pass), failed: fidItems.filter((i) => !i.pass).map((i) => i.id), outlineOnly: false, items: fidItems, metrics: { outlinePx: 0, outlineColor: "" } };
+  const review = {
+    cli: "codex",
+    ok: true,
+    pass: !failFid,
+    failing: failFid ? [{ kind: "added", what: "(preview) sparkles", detail: "three small stars next to the roof", severity: "major" }] : [],
+    notes: [{ kind: "pattern", what: "(preview) roof tiles", detail: "fewer tile rows than the capture", severity: "minor" }],
+    summary: failFid ? "(preview) Added decorations." : "(preview) Same object, repainted.",
+    failure: null,
+  };
+  const fidelity = strict
+    ? {
+        fidelityMode: "strict",
+        fidelity: { metrics: { profile: fidItems[0].value, foreignBlobs: fidItems[3].value, foreign: 0, outsideParts: 0, outside: 0, missing: 0 }, report: fidReport, suspect: failFid, captureColor: [0.5, 0.8] as [number, number], generatedColor: [0.54, 0.83] as [number, number], map: null },
+        reviews: [review],
+      }
+    : { fidelityMode: "stylized", fidelity: null, reviews: [] };
   return {
+    ...fidelity,
     ok: true,
     jobDir: "(preview)",
     candidate: 1,
@@ -304,7 +365,7 @@ async function previewPost(options: Record<string, unknown>, cand = 1): Promise<
     post: { alphaSource: "native", removedParts: 0, layout: { strokePx: stroke ? 4.2 : 0 } },
     generated: { report: { pass: true, failed: [], outlineOnly: false, items: gen, metrics: { outlinePx: 0, outlineColor: "" } }, iou: 0.88, modelOutline: false, nativeAlpha: true },
     sizes: [{ size: 256, path: "preview:2", checks: report }],
-    pass: report.pass,
+    pass: report.pass && (!strict || (fidReport.pass && review.pass)),
     elapsedMs: 300,
   };
 }
@@ -471,7 +532,7 @@ async function previewRun(args: RunArgs, onEvent: (e: RunEvent) => void): Promis
       }
       emit("generate", "ok", it.asset, index, String(c));
       emit("post", "start", it.asset, index, String(c));
-      const post = await previewPost({ outline: args.outline, background: args.background }, c);
+      const post = await previewPost({ outline: args.outline, background: args.background, fidelity: args.fidelity ?? "strict" }, c);
       emit("post", "ok", it.asset, index, String(c));
       const items2 = post.sizes[0].checks.items;
       emit("check", post.pass ? "ok" : "fail", it.asset, index);
@@ -585,12 +646,12 @@ export function exportPick(): Promise<string | null> {
 }
 
 /** The fixed prompt of a pack for a kind (no LLM). */
-export function promptPreview(packId: string, kind: string): Promise<Assembled> {
-  if (!inTauri) return Promise.resolve(previewAssembled(kind));
-  return invoke<Assembled>("prompt_preview", { packId, kind });
+export function promptPreview(packId: string, kind: string, camera: Record<string, unknown> | null = null): Promise<Assembled> {
+  if (!inTauri) return Promise.resolve(previewAssembled(kind, camera));
+  return invoke<Assembled>("prompt_preview", { packId, kind, camera });
 }
 
-function previewAssembled(kind: string): Assembled {
+function previewAssembled(kind: string, camera: Record<string, unknown> | null = null): Assembled {
   const s = (id: string, locked: boolean, text: string) => ({ id, block: id.split(".")[0], locked, text, status: "same" as const });
   const sentences = [
     s("HEADER.verbatim", true, "Use this prompt exactly as written; do not rewrite it or add details."),
@@ -599,7 +660,11 @@ function previewAssembled(kind: string): Assembled {
     s("STYLE.color", false, "Color: bright, saturated pastel palette with a few strong accent colors."),
     s("STYLE.outline", true, "No outline: keep a crisp, clean silhouette edge with no stroke, no sticker border and no glow."),
     s(`SUBJECT.keep`, true, `Keep the ${kind}'s shape, parts and color layout.`),
-    s("CAMERA.view", true, "Keep the capture's viewpoint: about 30° from above, turned 28° to the right."),
+    s(
+      "CAMERA.view",
+      true,
+      `Keep the capture's viewpoint exactly: camera looking down at about ${Number(camera?.pitch ?? 30)} degrees, object turned about ${Math.abs(Number(camera?.yaw ?? 28))} degrees so the front face and the ${Number(camera?.yaw ?? 28) < 0 ? "left" : "right"} side face are visible.`,
+    ),
     s("AVOID.tech", true, "No background, no text, no logo, no watermark, no frame, no second scene, nothing cut off."),
     s("OUTPUT.spec", true, "Output: one centered object on a transparent background, square canvas."),
   ];

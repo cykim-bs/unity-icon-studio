@@ -22,6 +22,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   call,
+  prefabCamera,
   captureImage,
   captureOnly,
   copyCodex,
@@ -60,13 +61,14 @@ import { initNav } from "./shell/nav";
 import { isBoolean, isString, readPref, writePref } from "./shell/prefs";
 import { initBodyResize } from "./shell/resize";
 import { initSettingsDialog } from "./shell/settings-dialog";
-import { fitStatusbar, flashStatus, setStatusPath } from "./shell/statusbar";
+import { endFlash, fitStatusbar, flashStatus, setStatusPath } from "./shell/statusbar";
 import { initTheme, isThemeChoice, oppositeChoice } from "./shell/theme";
 import { initTitlebar } from "./shell/titlebar";
 import type {
   AppInfo,
   Assembled,
   BatchFinish,
+  CameraView,
   CaptureEvent,
   HubProject,
   JobDetail,
@@ -126,7 +128,10 @@ let shown: PrefabItem[] = [];
 let dropHover = false;
 let thumbs: Record<string, string> = {};
 let previewBg = readPref("previewBg", "checker", (v): v is string => isString(v) && BGS.includes(v));
-const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {} });
+const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {}, stale: {} });
+/** The camera of the one picked prefab, and which prefab (and kind) it is for. */
+let camera: CameraView | null = null;
+let cameraFor: string | null = null;
 /** Capture state of the open project (cleared when another project is opened). */
 let cap: CaptureView = emptyCapture();
 const settingNumber = (key: string, d: number) => {
@@ -309,6 +314,12 @@ function renderBody() {
     opened = null;
     openedDir = null;
   }
+  const camKey = now.length === 1 ? `${now[0].path}|${now[0].kind}` : null;
+  if (camKey !== cameraFor) {
+    cameraFor = camKey;
+    camera = null;
+    if (camKey) void loadCamera(now[0], camKey);
+  }
   const title = renderDetails(
     $("body-content"),
     {
@@ -325,6 +336,7 @@ function renderBody() {
       exportDir: (getSetting("exportDir") as string) || "",
       exportRule: (getSetting("exportName") as string) || "icon_{prefab}",
       opened,
+      camera,
     },
     {
       setKind: (item, kind) => void setKind(item, kind),
@@ -393,6 +405,9 @@ function renderBody() {
         render();
       },
       rerunOpened: () => void rerunOpened(),
+      setCamera: (item, patch) => void setCamera(item, patch),
+      resetCamera: (item) => void setCamera(item, Object.fromEntries(CAMERA_KEYS.map((k) => [k, null]))),
+      cameraHint: (item, c) => void cameraHint(item, c),
     },
   );
   $("body-title").textContent = title || t("body.title");
@@ -744,6 +759,63 @@ async function makeThumbs() {
   }
 }
 
+// ---------------------------------------------------------------- composition (camera)
+
+/** The keys of a person's camera choice (the kind is set apart). */
+const CAMERA_KEYS = ["yaw", "pitch", "yawSign", "front", "rotation", "projection", "fov"];
+
+async function loadCamera(item: PrefabItem, key: string) {
+  const id = currentId;
+  if (!id) return;
+  const got = await prefabCamera(id, item.kind, item.rule ?? null, item.guid || null).catch(() => null);
+  if (key !== cameraFor) return;
+  camera = got;
+  renderBody();
+}
+
+/** The values a capture of `item` uses now, for the prompt's CAMERA sentence (null: not loaded). */
+function cameraValues(item: PrefabItem): Record<string, unknown> | null {
+  if (!camera || cameraFor !== `${item.path}|${item.kind}`) return null;
+  const e = camera.effective;
+  return { yaw: e.yaw, pitch: e.pitch, projection: e.projection, fov: e.fov };
+}
+
+/** The capture of `item` when it still matches its composition. */
+function usableCapture(item: PrefabItem): string | null {
+  return cap.stale?.[item.path] ? null : (cap.outputs[item.path] ?? null);
+}
+
+async function setCamera(item: PrefabItem, patch: Record<string, unknown>) {
+  if (!currentId || !item.guid) {
+    flashStatus(t("details.noGuid"));
+    return;
+  }
+  try {
+    await call("prefab_override", { id: currentId, guid: item.guid, patch });
+    if (cap.outputs[item.path]) (cap.stale ??= {})[item.path] = true;
+    // The rewrite preview was made for the old camera sentence
+    if (gen.diff) gen.diff = null;
+    const key = `${item.path}|${item.kind}`;
+    cameraFor = key;
+    await loadCamera(item, key);
+  } catch (e) {
+    flashStatus(t("camera.err", { code: String(e) }), 5000);
+    renderBody();
+  }
+}
+
+/** The note asked for another camera: change the composition, show it, and capture again. */
+async function cameraHint(item: PrefabItem, wish: string) {
+  const yaw = typeof camera?.effective.yaw === "number" ? camera.effective.yaw : 28;
+  const patch = wish === "front" ? { yaw: 10, pitch: 25 } : { yawSign: yaw < 0 ? 1 : -1 };
+  await setCamera(item, patch);
+  const box = document.getElementById("camera-box");
+  box?.scrollIntoView({ block: "center" });
+  box?.focus();
+  flashStatus(t("camera.applied"), 4000);
+  await runCapture([item]);
+}
+
 // ---------------------------------------------------------------- capture
 
 function progressText(e: CaptureEvent): string {
@@ -773,6 +845,7 @@ async function runCapture(items: PrefabItem[]) {
     for (const it of report.items) {
       if (it.ok && it.output) {
         delete cap.failures[it.prefab];
+        delete cap.stale?.[it.prefab];
         cap.outputs[it.prefab] = it.output;
         cap.images[it.prefab] = await captureImage(it.output).catch(() => "");
       } else if (it.error) {
@@ -815,7 +888,7 @@ async function runRewrite(item: PrefabItem) {
   renderBody();
   renderStatus();
   try {
-    gen.diff = await promptRewrite(p.packId, item.kind, gen.note, gen.cli);
+    gen.diff = await promptRewrite(p.packId, item.kind, gen.note, gen.cli, cameraValues(item));
     if (gen.diff.failure) {
       gen.error = `rewrite:${gen.diff.failure.kind}`;
       gen.errorStage = "rewrite";
@@ -837,7 +910,7 @@ async function showFinalPrompt(item: PrefabItem) {
   const p = current();
   if (!p) return;
   let text = gen.diff?.ok && gen.diff.finalText && gen.diff.note === gen.note ? gen.diff.finalText : "";
-  if (!text) text = (await promptPreview(p.packId, item.kind).catch(() => null))?.text ?? "";
+  if (!text) text = (await promptPreview(p.packId, item.kind, cameraValues(item)).catch(() => null))?.text ?? "";
   await showDialog({ title: t("make.showPrompt"), message: gen.note.trim() && !gen.diff ? t("make.promptFixedOnly") : "", detail: text });
 }
 
@@ -872,7 +945,7 @@ async function startMake(items: PrefabItem[], extra: { note?: string; cli?: stri
   gen.failure = null;
   gen.result = null;
   run = newRun(
-    items.map((i) => ({ asset: i.path, name: i.name, captured: !!cap.outputs[i.path] })),
+    items.map((i) => ({ asset: i.path, name: i.name, captured: !!usableCapture(i) })),
     Date.now(),
   );
   startTick();
@@ -882,7 +955,8 @@ async function startMake(items: PrefabItem[], extra: { note?: string; cli?: stri
     const report = await runStart(
       {
         id,
-        items: items.map((i) => ({ asset: i.path, kind: i.kind, ...(cap.outputs[i.path] ? { capture: cap.outputs[i.path] } : {}) })),
+        // A capture taken before the composition changed is not used: the run captures again
+        items: items.map((i) => ({ asset: i.path, kind: i.kind, ...(usableCapture(i) ? { capture: usableCapture(i)! } : {}) })),
         note,
         cli,
         candidates: gen.candidates,
@@ -903,9 +977,11 @@ async function startMake(items: PrefabItem[], extra: { note?: string; cli?: stri
     if (id !== currentId || !run) return;
     finishRun(run, report, Date.now());
     for (const it of report.items) {
-      if (it.capture && !cap.outputs[it.asset]) {
+      if (it.capture && it.capture !== cap.outputs[it.asset]) {
+        // A new capture (none before, or the old one was taken with another composition)
         cap.outputs[it.asset] = it.capture;
         cap.images[it.asset] = await captureImage(it.capture).catch(() => "");
+        delete cap.stale?.[it.asset];
       }
       if (it.stage === "capture" && it.error) cap.failures[it.asset] = it.error;
     }
@@ -1330,6 +1406,8 @@ function toggleTheme() {
 }
 
 function applyTexts() {
+  // A notice on screen is in the old language: it goes
+  endFlash();
   applyDomTexts();
   titlebar.relabel();
   nav.relabel();

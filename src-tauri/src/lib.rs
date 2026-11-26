@@ -57,6 +57,7 @@ pub fn run() {
             commands::hub_projects,
             commands::prefab_scan,
             commands::prefab_override,
+            commands::prefab_camera,
             commands::pack_list,
             commands::pack_get,
             commands::capture_only,
