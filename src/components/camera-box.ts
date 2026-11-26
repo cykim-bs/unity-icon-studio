@@ -54,6 +54,21 @@ export function rotationPreset(r: [number, number, number]): string {
   return ROTATIONS.find((p) => p.value.every((x, i) => norm(x) === norm(r[i])))?.id ?? "custom";
 }
 
+const CAMERA_FIELDS = ["yaw", "pitch", "projection", "fov"];
+
+const pickCamera = (v: Record<string, unknown> | null | undefined): Record<string, unknown> | null =>
+  v ? Object.fromEntries(CAMERA_FIELDS.filter((k) => v[k] !== undefined).map((k) => [k, v[k]])) : null;
+
+/**
+ * The camera the prompt's sentence is built with. With a capture: the values that capture was
+ * taken with, even when the composition changed since (the picture sent is that capture until it
+ * is taken again). Without one: the composition now (the next capture uses it).
+ */
+export function promptCamera(hasCapture: boolean, captured: Record<string, unknown> | null | undefined, now: Record<string, unknown> | null | undefined): { values: Record<string, unknown> | null; from: "capture" | "now" } {
+  if (hasCapture && captured) return { values: pickCamera(captured), from: "capture" };
+  return { values: pickCamera(now), from: "now" };
+}
+
 /** True when a person changed anything of the camera (not counting the kind). */
 export function hasPersonCamera(view: CameraView | null): boolean {
   const p = view?.person as Record<string, unknown> | null | undefined;

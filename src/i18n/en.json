@@ -542,5 +542,6 @@
   "export.originalHint": "Also writes the 1024 px picture the sizes are made from, named with _1024",
   "settings.exportOriginal": "Export the 1024 original too",
   "settings.exportOriginal.hint": "Screen and command line write the 1024 px picture (_1024) besides the picked sizes",
-  "capture.leftChanged": "The capture left {n} changed file(s) in the project (not put back; look before committing): {files}"
+  "capture.leftChanged": "The capture left {n} changed file(s) in the project (not put back; look before committing): {files}",
+  "camera.promptFromCapture": "The composition changed. This sentence is the current capture's camera; capture again to use the new one"
 }

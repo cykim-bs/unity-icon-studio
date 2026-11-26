@@ -22,6 +22,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   call,
+  captureValues,
   prefabCamera,
   captureImage,
   captureOnly,
@@ -44,6 +45,7 @@ import { applyDomTexts, currentLang, resolveLang, setLang, t } from "./i18n";
 import { applyFilter, CLASS_CHIPS, DEFAULT_FILTER, folderChoices, KIND_CHIPS, nextSelection, type ClassChip, type PrefabFilter } from "./prefab-filter";
 import { failureText } from "./prompt-text";
 import { applyEvent, finishRun, newRun, type RunView } from "./run-state";
+import { promptCamera } from "./components/camera-box";
 import { tickSteppers } from "./components/stepper";
 import { renderDetails, runErrorText, type CandView, type CaptureView, type GenView, type ResultView, type RetryKind } from "./screens/details";
 import { renderPacks } from "./screens/packs";
@@ -128,7 +130,7 @@ let shown: PrefabItem[] = [];
 let dropHover = false;
 let thumbs: Record<string, string> = {};
 let previewBg = readPref("previewBg", "checker", (v): v is string => isString(v) && BGS.includes(v));
-const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {}, stale: {} });
+const emptyCapture = (): CaptureView => ({ running: false, progress: "", error: null, images: {}, failures: {}, outputs: {}, stale: {}, values: {} });
 /** The camera of the one picked prefab, and which prefab (and kind) it is for. */
 let camera: CameraView | null = null;
 /** When the capture on screen started (status bar time). */
@@ -785,6 +787,20 @@ function cameraValues(item: PrefabItem): Record<string, unknown> | null {
   return { yaw: e.yaw, pitch: e.pitch, projection: e.projection, fov: e.fov };
 }
 
+/** Keeps the camera a capture of `item` was taken with (from its job file, else the composition now). */
+async function rememberCapture(item: PrefabItem | undefined, path: string, output: string) {
+  const got = await captureValues(output).catch(() => null);
+  const values = got ?? (item ? cameraValues(item) : null);
+  if (values) (cap.values ??= {})[path] = values;
+}
+
+/** The camera for the prompt shown: the capture's while there is one (stale or not), else the composition now. */
+async function promptCameraOf(item: PrefabItem): Promise<{ values: Record<string, unknown> | null; from: "capture" | "now" }> {
+  const out = cap.outputs[item.path];
+  if (out && !cap.values?.[item.path]) await rememberCapture(item, item.path, out);
+  return promptCamera(!!out, cap.values?.[item.path], cameraValues(item));
+}
+
 /** The capture of `item` when it still matches its composition. */
 function usableCapture(item: PrefabItem): string | null {
   return cap.stale?.[item.path] ? null : (cap.outputs[item.path] ?? null);
@@ -855,6 +871,9 @@ async function runCapture(items: PrefabItem[]) {
       if (it.ok && it.output) {
         delete cap.failures[it.prefab];
         delete cap.stale?.[it.prefab];
+        const before = JSON.stringify(cap.values?.[it.prefab] ?? null);
+        await rememberCapture(items.find((i) => i.path === it.prefab), it.prefab, it.output);
+        if (gen.diff && before !== JSON.stringify(cap.values?.[it.prefab] ?? null)) gen.diff = null;
         cap.outputs[it.prefab] = it.output;
         cap.images[it.prefab] = await captureImage(it.output).catch(() => "");
       } else if (it.error) {
@@ -899,7 +918,7 @@ async function runRewrite(item: PrefabItem) {
   renderBody();
   renderStatus();
   try {
-    gen.diff = await promptRewrite(p.packId, item.kind, gen.note, gen.cli, cameraValues(item));
+    gen.diff = await promptRewrite(p.packId, item.kind, gen.note, gen.cli, (await promptCameraOf(item)).values);
     if (gen.diff.failure) {
       gen.error = `rewrite:${gen.diff.failure.kind}`;
       gen.errorStage = "rewrite";
@@ -921,8 +940,10 @@ async function showFinalPrompt(item: PrefabItem) {
   const p = current();
   if (!p) return;
   let text = gen.diff?.ok && gen.diff.finalText && gen.diff.note === gen.note ? gen.diff.finalText : "";
-  if (!text) text = (await promptPreview(p.packId, item.kind, cameraValues(item)).catch(() => null))?.text ?? "";
-  await showDialog({ title: t("make.showPrompt"), message: gen.note.trim() && !gen.diff ? t("make.promptFixedOnly") : "", detail: text });
+  if (!text) text = (await promptPreview(p.packId, item.kind, (await promptCameraOf(item)).values).catch(() => null))?.text ?? "";
+  // A changed composition reaches the sentence only with the capture it is taken in
+  const notes = [cap.stale?.[item.path] ? t("camera.promptFromCapture") : "", gen.note.trim() && !gen.diff ? t("make.promptFixedOnly") : ""].filter(Boolean);
+  await showDialog({ title: t("make.showPrompt"), message: notes.join(" "), detail: text });
 }
 
 // ---------------------------------------------------------------- make: the whole run
@@ -993,6 +1014,7 @@ async function startMake(items: PrefabItem[], extra: { note?: string; cli?: stri
         cap.outputs[it.asset] = it.capture;
         cap.images[it.asset] = await captureImage(it.capture).catch(() => "");
         delete cap.stale?.[it.asset];
+        await rememberCapture(items.find((i) => i.path === it.asset), it.asset, it.capture);
       }
       if (it.stage === "capture" && it.error) cap.failures[it.asset] = it.error;
     }

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { hasPersonCamera, renderCameraBox, rotationPreset, sourceOf } from "./components/camera-box";
+import { hasPersonCamera, promptCamera, renderCameraBox, rotationPreset, sourceOf } from "./components/camera-box";
 import { renderPromptDiff } from "./components/prompt-diff";
 import { setLang } from "./i18n";
 import type { CameraView, RewriteReport } from "./types";
@@ -105,5 +105,17 @@ describe("composition box", () => {
     box.querySelector<HTMLButtonElement>("#cam-hint")!.click();
     expect(onCamera).toHaveBeenCalledWith("front");
     expect(renderPromptDiff(r).querySelector("#cam-hint")).toBeNull();
+  });
+
+  it("the prompt's camera is the capture's until it is taken again", () => {
+    const captured = { yaw: 28, pitch: 30, projection: "orthographic", fov: 20, prefab: "Assets/A.prefab", size: 1024 };
+    const now = { yaw: -28, pitch: 45, projection: "orthographic", fov: 20 };
+    // a capture exists (stale or not): its values, nothing else from the job item
+    expect(promptCamera(true, captured, now)).toEqual({ values: { yaw: 28, pitch: 30, projection: "orthographic", fov: 20 }, from: "capture" });
+    // no capture yet: the composition now (the next capture uses it)
+    expect(promptCamera(false, null, now)).toEqual({ values: now, from: "now" });
+    // a capture whose values are unknown: the composition now
+    expect(promptCamera(true, null, now).from).toBe("now");
+    expect(promptCamera(false, null, null).values).toBeNull();
   });
 });

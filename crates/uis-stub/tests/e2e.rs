@@ -406,3 +406,29 @@ fn fidelity_of_a_job_is_the_apps_and_a_finished_icon_leads_back_to_it() {
     assert_eq!(uis_core::jobs::job_of_finished_picture(&master), Some((job.clone(), 1)));
     assert_eq!(uis_core::jobs::job_of_finished_picture(&job.join("capture").join("capture.png")), None);
 }
+
+#[test]
+fn a_capture_taken_before_the_composition_changed_keeps_its_own_camera_sentence() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let bed = Bed::new("stalecam", "delay_ms=200\n");
+    let id = uis_core::projects::add(&bed.home, &bed.project).unwrap().id;
+    let meta = std::fs::read_to_string(bed.project.join("Assets/Props/Crate.prefab.meta")).unwrap();
+    let guid = meta.lines().find_map(|l| l.strip_prefix("guid: ")).unwrap().trim().to_string();
+    // 1. A capture with the kind preset
+    let mut req = bed.request(&["Assets/Props/Crate.prefab"], "");
+    req.export_dir = None;
+    let (first, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let old = first.items[0].capture.clone().unwrap();
+    let pitch_then = uis_core::capture::values_of_picture(Path::new(&old)).unwrap()["pitch"].as_f64().unwrap();
+    // 2. The composition changes, the picture is not taken again and is passed as it is
+    let patch = json!({ "pitch": 45, "yawSign": -1 });
+    uis_core::projects::set_override(&bed.home, &id, &guid, patch.as_object().unwrap()).unwrap();
+    req.items = vec![RunItemRequest { asset: "Assets/Props/Crate.prefab".into(), kind: Some("prop".into()), capture: Some(PathBuf::from(&old)) }];
+    let (r, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let it = &r.items[0];
+    assert!(r.capture.is_none(), "no new capture");
+    let fixed = std::fs::read_to_string(Path::new(it.job_dir.as_ref().unwrap()).join("prompt/fixed.txt")).unwrap();
+    // The sentence says what the picture sent shows, not the new composition
+    assert!(fixed.contains(&format!("looking down at about {} degrees", pitch_then as i64)), "{fixed}");
+    assert!(!fixed.contains("about 45 degrees") && fixed.contains("the right side face"), "{fixed}");
+}

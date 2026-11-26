@@ -79,7 +79,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 3. **Check the capture (optional):** 「Capture」 (Ctrl+R) shows the capture alone. 「Make icon」 captures first when there is no picture yet.
    The **Composition** box changes how far the camera looks down and is turned, the side shown, the front axis, the root rotation (presets such as standing up a model that comes in lying down, or typed values) and the projection (orthographic, or perspective with a FOV).
    Each value says whether it comes from the kind preset, the pack's rule or a change made here; 「Back to the start」 clears the changes (kept per project).
-   A change marks the capture as stale until it is captured again. The prompt's camera sentence is always built from **the values the capture was taken with**, so picture and words never disagree.
+   A change marks the capture as stale until it is captured again. The prompt's camera sentence is always built from **the values the capture was taken with**, so picture and words never disagree. Before the new capture, 「Show prompt」 and the rewrite preview show the current capture's values (with a note), and 「Make icon」 on a stale capture captures again first.
    When a note asks for another camera (「from the front」), the rewrite keeps the locked camera sentence and offers 「Change the composition and capture again」, which sets the box and captures.
 
    ![The Composition box: where each value comes from, and 「capture again」 after a change (made-up sample data)](docs/assets/screen-camera-en.webp)

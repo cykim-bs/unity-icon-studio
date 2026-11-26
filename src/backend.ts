@@ -429,6 +429,12 @@ export function captureOnly(id: string, items: string[], onEvent: (e: CaptureEve
   return invoke<CaptureReport>("capture_only", { id, items, purpose, onEvent: channel });
 }
 
+/** The camera values a capture picture was taken with (null: unknown, e.g. the browser preview). */
+export function captureValues(path: string): Promise<Record<string, unknown> | null> {
+  if (!inTauri) return Promise.resolve(null);
+  return invoke<Record<string, unknown> | null>("capture_values", { path });
+}
+
 /** A capture PNG as a data: URL (the preview draws a plain shape). */
 export function captureImage(path: string): Promise<string> {
   if (!inTauri) return Promise.resolve(previewPicture(Number(path.split(":")[1] ?? 0) + 1));

@@ -62,6 +62,7 @@ pub fn run() {
             commands::pack_get,
             commands::capture_only,
             commands::capture_image,
+            commands::capture_values,
             commands::recovery_status,
             commands::recovery_run,
             commands::readiness,

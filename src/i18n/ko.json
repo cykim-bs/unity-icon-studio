@@ -542,5 +542,6 @@
   "export.originalHint": "크기를 줄이기 전 1024px 그림도 같은 이름에 _1024를 붙여 씁니다",
   "settings.exportOriginal": "1024 원본도 내보내기",
   "settings.exportOriginal.hint": "화면과 명령줄 모두 고른 크기에 더해 1024px 그림을 _1024 이름으로 씁니다",
-  "capture.leftChanged": "촬영 뒤 프로젝트에 바뀐 파일 {n}개가 남았습니다(도구가 되돌리지 않음, 커밋 전에 확인하세요): {files}"
+  "capture.leftChanged": "촬영 뒤 프로젝트에 바뀐 파일 {n}개가 남았습니다(도구가 되돌리지 않음, 커밋 전에 확인하세요): {files}",
+  "camera.promptFromCapture": "구도가 바뀌었습니다. 이 문장은 지금 촬영본을 찍은 구도입니다. 다시 찍으면 새 구도가 반영됩니다"
 }

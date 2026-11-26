@@ -34,6 +34,8 @@ export interface CaptureView {
   outputs: Record<string, string>;
   /** The composition changed after this capture, by asset path: a new capture is needed */
   stale?: Record<string, boolean>;
+  /** The camera values each capture was taken with, by asset path */
+  values?: Record<string, Record<string, unknown>>;
 }
 
 /** One candidate of a result. */

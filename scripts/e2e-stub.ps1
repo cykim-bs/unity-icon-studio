@@ -369,6 +369,11 @@ $fixed = [IO.File]::ReadAllText((Join-Path $it.jobDir 'prompt\fixed.txt'))
 Check ($fixed.Contains('looking down at about 45 degrees') -and $fixed.Contains('turned about 40 degrees') -and $fixed.Contains('the left side face')) 'the CAMERA sentence says the same (45, 40, left)'
 $r = Invoke-Uis $b @('camera', '--project', $b.Game, '--prefab', $crateAsset, '--reset', '--json') 'camera-reset'
 Check ($r.Json.effective.yaw -eq $start.yaw -and $r.Json.effective.pitch -eq $start.pitch -and $null -eq $r.Json.person) 'back to the start: the preset again, nothing stored'
+# The composition is back to the preset, the 45-degree capture is passed as it is: the sentence
+# says what that picture shows (45, left), not the composition now
+$r = Invoke-Run $b @('--prefab', $crateAsset, '--capture', $it.capture, '--kind', 'prop')
+$fixed2 = [IO.File]::ReadAllText((Join-Path $r.Report.items[0].jobDir 'prompt\fixed.txt'))
+Check ($null -eq $r.Report.capture -and $fixed2.Contains('looking down at about 45 degrees') -and $fixed2.Contains('the left side face')) 'an earlier capture keeps its own camera sentence'
 
 # A note that asks for another camera: both rewrite paths report it, the locked CAMERA sentence stays
 $camRows = @()

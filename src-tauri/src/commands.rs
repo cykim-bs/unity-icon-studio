@@ -284,6 +284,24 @@ pub async fn capture_image(path: String) -> Result<String, String> {
     .await
 }
 
+/// The camera values a capture picture was taken with (`job-in.json` next to it), for the
+/// prompt shown on screen: the sentence must say what the picture shows. Only in the tool's
+/// home and work folder; None for a picture without a capture job.
+#[tauri::command]
+pub async fn capture_values(path: String) -> Result<Option<Map<String, Value>>, String> {
+    blocking(move || {
+        let home = home();
+        let s = settings::load(&home);
+        let p = Path::new(&path);
+        let work = s.work_dir.as_ref().map(PathBuf::from).unwrap_or_else(|| home.default_work_dir());
+        if !(is_inside(p, home.root()) || is_inside(p, &work)) {
+            return Err("outside".into());
+        }
+        Ok(uis_core::capture::values_of_picture(p))
+    })
+    .await
+}
+
 /// Batch captures left by an earlier run (Unity still running or not cleaned up yet).
 #[tauri::command]
 pub async fn recovery_status() -> Result<Vec<RecoveryEntry>, String> {
