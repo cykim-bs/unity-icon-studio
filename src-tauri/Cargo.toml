@@ -1,0 +1,26 @@
+[package]
+name = "unity-icon-studio"
+description = "Desktop app that captures Unity prefabs and turns them into casual game icons"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "unity_icon_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde.workspace = true
+serde_json.workspace = true
+uis-core = { path = "../crates/uis-core" }
+tauri-plugin-window-state = "2"
+# Release builds: a second start shows the running window (lib.rs)
+tauri-plugin-single-instance = "2.5.0"
+# Folder picker for "Add folder"; "Open folder"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"

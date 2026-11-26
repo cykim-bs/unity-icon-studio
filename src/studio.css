@@ -1,0 +1,340 @@
+/*
+ * Studio screens: list tools (find, chips, folder picker), the prefab grid, the details column,
+ * empty states. Colors are theme tokens (src/shell/theme); nothing here is translucent. The list
+ * tools, link and action buttons and the details-over-list rules come from unity-slot-widget
+ * src/slots.css (MIT, same author). The accent fills one control only: the Make icon button.
+ */
+
+:root {
+  /* settings + three 46px caption buttons */
+  --controls-w: 178px;
+}
+
+.muted {
+  color: var(--muted);
+}
+.hot-text {
+  color: var(--hot);
+}
+.warn-text {
+  color: var(--warn);
+}
+.sep {
+  margin: 0 4px;
+  color: var(--muted);
+}
+
+#list-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 12px 6px;
+}
+/* The project shown: a button that opens a menu (the side panel's project rows are the same state) */
+.pick-btn {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  cursor: pointer;
+}
+.pick-btn:hover {
+  background: color-mix(in srgb, var(--fg) 5%, var(--bg));
+}
+.pick-btn.on {
+  border-color: var(--accent);
+  background: var(--selected-bg);
+  font-weight: 600;
+}
+.pick-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.pick-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pick-btn svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+#find {
+  flex: 1 1 160px;
+  max-width: 280px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--muted);
+}
+#find:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+#find svg {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+#find-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--fg);
+  font-size: 12px;
+}
+.chip-group {
+  display: flex;
+  gap: 4px;
+}
+.chip-btn {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.chip-btn:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 5%, var(--bg));
+}
+.chip-btn[aria-checked="true"] {
+  border-color: var(--accent);
+  background: var(--selected-bg);
+  color: var(--fg);
+  font-weight: 600;
+}
+.chip-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* A button that reads as a link (details rows, the projects panel) */
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.link-btn.warn-text {
+  color: var(--warn);
+}
+.link-btn:hover {
+  color: var(--fg);
+}
+.link-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- details column ---- */
+#body-content {
+  padding: 12px 14px 20px;
+  font-size: 13px;
+}
+#body-content .details {
+  margin-top: 12px;
+  padding: 0;
+  background: none;
+  font-size: 12.5px;
+  gap: 6px 14px;
+}
+.body-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.body-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.act-btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.act-btn:hover {
+  background: color-mix(in srgb, var(--fg) 7%, var(--bg));
+}
+.act-btn:disabled {
+  color: var(--muted);
+  cursor: default;
+  background: var(--bg);
+}
+.act-btn.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.act-btn.primary:hover {
+  filter: brightness(1.08);
+}
+.act-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- details over the list: below 720px, or with the details column folded ---- */
+#sheet-head {
+  display: none;
+}
+#app[data-sheet="open"][data-body] #body-main {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  /* Both lines: for an absolutely placed grid item an auto end line is the container's edge */
+  grid-column: 2 / 3;
+  grid-row: 3 / 4;
+  border-left: 0;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.18);
+}
+#app[data-sheet="open"] #sheet-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px 0 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+#list-tools[hidden] {
+  display: none;
+}
+#list-tools .spacer {
+  flex: 1;
+}
+.chip-group[hidden] {
+  display: none;
+}
+#list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+#list-inner {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.head-title {
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* ---- empty states ---- */
+.empty-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px;
+  text-align: center;
+}
+.empty-state h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.empty-state p {
+  margin: 0;
+  font-size: 12px;
+}
+.empty-state.drop-on {
+  outline: 2px dashed var(--accent);
+  outline-offset: -12px;
+  border-radius: 12px;
+}
+
+/* ---- readiness checklist (details column, nothing chosen) ---- */
+.ready-list h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.ready-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  font-size: 12.5px;
+}
+.ready-name {
+  flex: 1;
+}
+.ready-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--muted);
+}
+.ready-dot.ok {
+  border-color: var(--ok);
+  background: var(--ok);
+}
+.ready-dot.bad {
+  border-color: var(--hot);
+  background: var(--hot);
+}

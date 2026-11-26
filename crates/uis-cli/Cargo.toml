@@ -1,0 +1,15 @@
+[package]
+name = "uis-cli"
+description = "Command line for Icon Studio (uis)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "uis"
+path = "src/main.rs"
+
+[dependencies]
+uis-core = { path = "../uis-core" }
+serde_json.workspace = true

@@ -1,0 +1,15 @@
+{
+  "identifier": "default",
+  "description": "The main window (the settings popup lives in it)",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-start-resize-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-visible",
+    "core:event:allow-listen"
+  ]
+}

@@ -1,0 +1,7 @@
+/* Main window styles, in cascade order: theme tokens, page base, window frame (rounded card), app frame, studio screens. */
+@import "./shell/theme/tokens.css";
+@import "./shell/theme/dark.css";
+@import "./shell/theme/base.css";
+@import "./shell/frame.css";
+@import "./shell/shell.css";
+@import "./studio.css";
