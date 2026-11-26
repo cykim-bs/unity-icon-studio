@@ -313,6 +313,7 @@ fn capture(args: &Args) -> i32 {
     });
     if args.json {
         print_value(&serde_json::to_value(&report).unwrap_or_default(), true);
+        warn_left(report.git.as_ref().map(|g| g.left.as_slice()).unwrap_or_default());
     } else {
         println!("{}  {} ({})  run {}", report.project, report.mode, report.reason, report.run_id);
         for it in &report.items {
@@ -320,6 +321,10 @@ fn capture(args: &Args) -> i32 {
         }
         if let Some(g) = &report.git {
             println!("git same {}  restored {}  other {}", g.same, g.restored.len(), g.other.len());
+            for p in &g.line_endings {
+                println!("  put back (line endings only): {p}");
+            }
+            warn_left(&g.left);
         }
         if let Some(e) = &report.error {
             println!("error {e}");
@@ -625,6 +630,17 @@ fn print_value(value: &Value, json_out: bool) {
     }
 }
 
+/// The project files a capture left changed: on stderr, so they are seen with `--json` too.
+fn warn_left(left: &[String]) {
+    if left.is_empty() {
+        return;
+    }
+    eprintln!("WARNING: the capture left {} changed file(s) in the project (not put back, look before committing):", left.len());
+    for l in left {
+        eprintln!("  {l}");
+    }
+}
+
 fn run_cmd(args: &Args) -> i32 {
     let Some(project) = args.value("--project").map(PathBuf::from) else {
         eprintln!("uis run: give --project and --prefab
@@ -682,6 +698,12 @@ fn run_cmd(args: &Args) -> i32 {
             eprintln!("{:>7.1}s {} {}{item}{msg}", e.elapsed_ms as f64 / 1000.0, e.stage, e.state);
         }
     });
+    if let Some(c) = &report.capture {
+        for p in &c.line_endings {
+            eprintln!("put back (line endings only): {p}");
+        }
+        warn_left(&c.left);
+    }
     if args.json {
         print_value(&serde_json::to_value(&report).unwrap_or_default(), true);
     } else {

@@ -14,6 +14,8 @@
 #      one more try with the correction fixes it, on both review paths (Claude, then Codex)
 #   9. composition: `uis camera` changes a prefab's camera; the capture job and the CAMERA
 #      sentence follow it; reset; a note's camera wish on both rewrite paths
+#  10. a batch capture rewrites a text file with CRLF only (put back) and really changes another
+#      (left, warned about)
 # Steps 5, 6, 8 and 9 print a table of the two paths; a path that did not run is a failure.
 # Exit code 0 when every check passed.
 #
@@ -380,6 +382,22 @@ foreach ($cli in 'claude', 'codex') {
 Remove-Item (Join-Path $b.Bin 'reply.json')
 Check ($camRows.Count -eq 2) 'both rewrite paths ran'
 
+
+Say ''
+Say '10. a batch capture that rewrites line endings, and one that really changes a file'
+Set-Scenario $b.Root "delay_ms=400`ntouch_crlf=README.md`ntouch_edit=Assets/Props/CrateRed.prefab`n"
+$beforeStatus = (& git -C $b.Game -c core.autocrlf=false status --short) -join "`n"
+$r = Invoke-Uis $b @('capture', '--project', $b.Game, '--prefab', 'Assets/Props/Crate.prefab', '--mode', 'batch', '--json') 'capture-eol'
+$g = $r.Json.git
+Check ((@($g.lineEndings) -join ',') -eq 'README.md') 'put back: README.md (only its line endings changed)'
+Check ((@($g.left) -join ',') -eq ' M Assets/Props/CrateRed.prefab') 'left and reported: the real change'
+Check ((@($r.Err) -join "`n") -match 'WARNING: the capture left 1 changed file') 'the command line warns about it (stderr, with --json too)'
+$readme = [IO.File]::ReadAllBytes((Join-Path $b.Game 'README.md'))
+Check (-not ([Text.Encoding]::ASCII.GetString($readme).Contains("`r`n"))) 'README.md is LF again'
+& git -C $b.Game checkout -q -- Assets/Props/CrateRed.prefab
+$afterStatus = (& git -C $b.Game -c core.autocrlf=false status --short) -join "`n"
+Check ($afterStatus -eq $beforeStatus) 'after putting the test edit back: git status as before'
+Set-Scenario $b.Root "delay_ms=400`n"
 Say ''
 Say 'two paths, side by side'
 Say '  rewrite (same note, same model answer)'

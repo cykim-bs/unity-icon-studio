@@ -7,7 +7,12 @@
 //!    restore patterns (`*.mat`, `*.asset`, `*.meta`, `ProjectSettings/*`), are backed up as they are
 //!    (`git diff --binary`, bytes untouched) to `<home>\backups\<run>.patch`, then put back with
 //!    `git checkout --`.
-//! 3. Any other change (scripts, scenes, prefabs, new files) is only listed. Files that were
+//! 3. Files that were clean before and now differ from HEAD only in their line endings (a tool
+//!    or plugin rewrote them with CRLF; `git diff --ignore-cr-at-eol` is empty) are put back too,
+//!    whatever their name: nothing in them changed. Their bytes are copied next to the patch first
+//!    (`<run>.files\<path>`), since a diff of line endings alone may come out empty.
+//! 4. Any other change (scripts, scenes, prefabs, new files) is only listed, in `left` when it
+//!    appeared during the run (the screen and the command line warn about those). Files that were
 //!    already changed before the run are never touched.
 //!
 //! Outside git nothing can be put back; the result says so (`notGit`).
@@ -52,6 +57,12 @@ pub struct GuardReport {
     pub backup: Option<String>,
     /// Changes that appeared during the run and were left as they are
     pub other: Vec<String>,
+    /// Put back because only their line endings changed (also in `restored`)
+    #[serde(default)]
+    pub line_endings: Vec<String>,
+    /// Changes that appeared during the run and are still there (a person should look)
+    #[serde(default)]
+    pub left: Vec<String>,
     pub before: Vec<String>,
     pub after: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -148,12 +159,15 @@ pub fn restore_and_compare(project: &Path, before: &Snapshot, patterns: &[String
         }
         if restore && is_tracked_change(xy) && patterns.iter().any(|p| matches_pattern(p, path)) {
             to_restore.push(path.clone());
+        } else if restore && is_tracked_change(xy) && line_endings_only(project, path) {
+            report.line_endings.push(path.clone());
+            to_restore.push(path.clone());
         } else {
             report.other.push(format!("{xy} {path}"));
         }
     }
     if !to_restore.is_empty() {
-        match save_patch_and_checkout(project, &to_restore, backup) {
+        match save_patch_and_checkout(project, &to_restore, &report.line_endings, backup) {
             Ok(()) => {
                 report.restored = to_restore;
                 report.backup = Some(backup.display().to_string());
@@ -161,16 +175,29 @@ pub fn restore_and_compare(project: &Path, before: &Snapshot, patterns: &[String
             Err(e) => {
                 report.problem = Some(e);
                 report.other.extend(to_restore.iter().map(|p| format!(" M {p}")));
+                report.line_endings.clear();
             }
         }
     }
     let after = snapshot(project);
     report.after = after.short_lines();
+    // What the run left behind: new or changed since the start, still there now
+    report.left = after
+        .entries
+        .iter()
+        .filter(|(p, xy)| before.entries.get(*p) != Some(*xy))
+        .map(|(p, xy)| format!("{xy} {p}"))
+        .collect();
     report.same = after.problem.is_none() && after.entries == before.entries;
     report
 }
 
-fn save_patch_and_checkout(project: &Path, paths: &[String], backup: &Path) -> Result<(), String> {
+/// True when the working file differs from the index only in CR at line ends (or not at all).
+pub fn line_endings_only(project: &Path, path: &str) -> bool {
+    run(&git(project).args(["diff", "--ignore-cr-at-eol", "--quiet", "--"]).arg(path)).map(|o| o.success()).unwrap_or(false)
+}
+
+fn save_patch_and_checkout(project: &Path, paths: &[String], raw_copies: &[String], backup: &Path) -> Result<(), String> {
     let diff = run(&git(project).args(["diff", "--binary", "--"]).args(paths.iter())).map_err(|e| format!("diff:{e}"))?;
     if !diff.success() {
         return Err(format!("diff:{}", diff.code()));
@@ -179,6 +206,17 @@ fn save_patch_and_checkout(project: &Path, paths: &[String], backup: &Path) -> R
         std::fs::create_dir_all(dir).map_err(|e| format!("backup:{e}"))?;
     }
     std::fs::write(backup, &diff.stdout).map_err(|e| format!("backup:{e}"))?;
+    // Line-ending-only files: their bytes as they are (the diff can be empty for them)
+    if !raw_copies.is_empty() {
+        let dir = backup.with_extension("files");
+        for rel in raw_copies {
+            let dst = dir.join(rel.replace('/', std::path::MAIN_SEPARATOR_STR));
+            if let Some(d) = dst.parent() {
+                std::fs::create_dir_all(d).map_err(|e| format!("backup:{e}"))?;
+            }
+            std::fs::copy(project.join(rel), &dst).map_err(|e| format!("backup:{rel}:{e}"))?;
+        }
+    }
     let co = run(&git(project).args(["checkout", "--"]).args(paths.iter())).map_err(|e| format!("checkout:{e}"))?;
     if !co.success() {
         return Err(format!("checkout:{}", co.code()));
@@ -213,6 +251,59 @@ mod tests {
         assert!(matches_pattern("ProjectSettings/*", "ProjectSettings/ProjectSettings.asset"));
         assert!(!matches_pattern("ProjectSettings/*", "Assets/ProjectSettings/x.txt"));
         assert!(!matches_pattern("*.mat", "Assets/a.prefab"));
+    }
+
+    fn git_in(dir: &Path, args: &[&str]) -> bool {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["-c", "user.email=test", "-c", "user.name=test"])
+            .args(args)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    }
+
+    #[test]
+    fn line_ending_only_changes_are_put_back_and_others_are_reported() {
+        let d = std::env::temp_dir().join(format!("uis-eol-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("Assets/Plugins/res")).unwrap();
+        // LF in the repository, normalized like a project with `eol=lf`
+        std::fs::write(d.join(".gitattributes"), "*.xml text eol=lf\n*.txt text eol=lf\n").unwrap();
+        std::fs::write(d.join("Assets/Plugins/res/values.xml"), "<a>\n  <b/>\n</a>\n").unwrap();
+        std::fs::write(d.join("Assets/notes.txt"), "one\ntwo\n").unwrap();
+        std::fs::write(d.join("Assets/kept.txt"), "x\n").unwrap();
+        assert!(git_in(&d, &["init", "-q"]));
+        assert!(git_in(&d, &["config", "core.autocrlf", "false"]));
+        assert!(git_in(&d, &["add", "-A"]));
+        assert!(git_in(&d, &["commit", "-q", "-m", "x"]));
+        // Already changed before the run: never touched
+        std::fs::write(d.join("Assets/kept.txt"), "changed before\n").unwrap();
+        let before = snapshot(&d);
+        // The run: one file rewritten with CRLF only, one with a real change
+        std::fs::write(d.join("Assets/Plugins/res/values.xml"), "<a>\r\n  <b/>\r\n</a>\r\n").unwrap();
+        std::fs::write(d.join("Assets/notes.txt"), "one\ntwo\nthree\n").unwrap();
+        let mid = snapshot(&d);
+        assert!(mid.entries.contains_key("Assets/Plugins/res/values.xml"), "git sees the CRLF file as changed: {:?}", mid.entries);
+        assert!(line_endings_only(&d, "Assets/Plugins/res/values.xml"));
+        assert!(!line_endings_only(&d, "Assets/notes.txt"));
+        let backup = d.with_extension("bk").join("run1.patch");
+        let r = restore_and_compare(&d, &before, &["*.meta".to_string()], true, &backup);
+        assert_eq!(r.line_endings, ["Assets/Plugins/res/values.xml"]);
+        assert_eq!(r.restored, ["Assets/Plugins/res/values.xml"]);
+        assert_eq!(std::fs::read_to_string(d.join("Assets/Plugins/res/values.xml")).unwrap(), "<a>\n  <b/>\n</a>\n");
+        // the CRLF bytes were kept
+        assert!(std::fs::read(d.with_extension("bk").join("run1.files/Assets/Plugins/res/values.xml")).unwrap().windows(2).any(|w| w == b"\r\n"));
+        assert_eq!(r.left, [" M Assets/notes.txt"], "the real change is left and reported");
+        assert_eq!(std::fs::read_to_string(d.join("Assets/kept.txt")).unwrap(), "changed before\n");
+        assert!(!r.same);
+        // Not asked to restore: nothing put back, both reported
+        std::fs::write(d.join("Assets/Plugins/res/values.xml"), "<a>\r\n  <b/>\r\n</a>\r\n").unwrap();
+        let r2 = restore_and_compare(&d, &before, &[], false, &d.with_extension("bk").join("run2.patch"));
+        assert!(r2.restored.is_empty() && r2.left.len() == 2);
+        let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(d.with_extension("bk"));
     }
 
     #[test]

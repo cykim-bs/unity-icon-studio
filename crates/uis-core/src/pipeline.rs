@@ -158,6 +158,10 @@ pub struct CaptureSummary {
     pub failed: usize,
     pub pending: bool,
     pub elapsed_ms: u64,
+    /// Tracked files put back because only their line endings changed
+    pub line_endings: Vec<String>,
+    /// Changes the capture left in the project (`XY path`): a person should look
+    pub left: Vec<String>,
 }
 
 impl From<&CaptureReport> for CaptureSummary {
@@ -171,6 +175,8 @@ impl From<&CaptureReport> for CaptureSummary {
             failed: c.failed,
             pending: c.pending,
             elapsed_ms: c.elapsed_ms,
+            line_endings: c.git.as_ref().map(|g| g.line_endings.clone()).unwrap_or_default(),
+            left: c.git.as_ref().map(|g| g.left.clone()).unwrap_or_default(),
         }
     }
 }

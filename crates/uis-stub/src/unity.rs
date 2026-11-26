@@ -5,6 +5,9 @@
 //!   result), `compile_error` (CLI: the script does not compile)
 //! - `delay_ms`: batch start-up time (default 1500)
 //! - `hang_ms`: how long `hang` sleeps (default 8000)
+//! - `touch_crlf`: a tracked text file the batch editor writes again with CRLF line ends and the
+//!   same content (like an editor plugin regenerating a resource file)
+//! - `touch_edit`: a tracked file the batch editor really changes (a line added at the end)
 //! - `touch`: a tracked file (from the project) the batch editor rewrites, like Unity adding an
 //!   importer block to a `.meta`
 //! - `instances`: what `status --json` lists: `<project path>|<state>` separated by `;`
@@ -132,6 +135,17 @@ fn editor(args: &[String], sc: &HashMap<String, String>) -> i32 {
     if let Some(rel) = sc.get("touch") {
         if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(project.join(rel)) {
             let _ = f.write_all(b"  stubImporter:\n    serializedVersion: 2\n");
+        }
+    }
+    if let Some(rel) = sc.get("touch_crlf") {
+        if let Ok(text) = std::fs::read_to_string(project.join(rel)) {
+            let crlf = text.replace("\r\n", "\n").replace('\n', "\r\n");
+            let _ = std::fs::write(project.join(rel), crlf);
+        }
+    }
+    if let Some(rel) = sc.get("touch_edit") {
+        if let Ok(mut f) = std::fs::OpenOptions::new().append(true).open(project.join(rel)) {
+            let _ = f.write_all(b"stub edit\n");
         }
     }
     let kind = sc.get("scenario").map(String::as_str).unwrap_or("ok");

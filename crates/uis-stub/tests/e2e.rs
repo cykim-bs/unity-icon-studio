@@ -352,3 +352,57 @@ fn a_persons_camera_reaches_the_capture_and_the_prompt() {
     assert!(fixed.contains("looking down at about 45 degrees"), "{fixed}");
     assert!(fixed.contains("turned about 40 degrees") && fixed.contains("the left side face"), "{fixed}");
 }
+
+fn git(dir: &Path, args: &[&str]) {
+    let ok = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.email=test", "-c", "user.name=test", "-c", "core.autocrlf=false"])
+        .args(args)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    assert!(ok, "git {args:?}");
+}
+
+#[test]
+fn a_batch_that_rewrites_line_endings_leaves_the_project_clean_and_reports_real_changes() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    // The batch editor writes a text file again with CRLF (same content) and really changes a prefab
+    let bed = Bed::new("eol", "delay_ms=200\ntouch_crlf=README.md\ntouch_edit=Assets/Props/CrateRed.prefab\n");
+    std::fs::write(bed.project.join(".gitattributes"), "* text=auto eol=lf\n").unwrap();
+    git(&bed.project, &["init", "-q"]);
+    git(&bed.project, &["config", "core.autocrlf", "false"]);
+    git(&bed.project, &["add", "-A"]);
+    git(&bed.project, &["commit", "-q", "-m", "fixture"]);
+    let mut req = bed.request(&["Assets/Props/Crate.prefab"], "");
+    req.export_dir = None;
+    let (r, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let cap = r.capture.as_ref().unwrap();
+    assert_eq!(cap.line_endings, ["README.md"], "put back: only its line endings changed");
+    assert_eq!(cap.left, [" M Assets/Props/CrateRed.prefab"], "the real change is reported, not put back");
+    assert!(std::fs::read(bed.project.join("README.md")).unwrap().windows(2).all(|w| w != b"\r\n"));
+    assert!(std::fs::read_to_string(bed.project.join("Assets/Props/CrateRed.prefab")).unwrap().ends_with("stub edit\n"));
+}
+
+#[test]
+fn fidelity_of_a_job_is_the_apps_and_a_finished_icon_leads_back_to_it() {
+    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
+    let bed = Bed::new("fidjob", "codex_image=copy\n");
+    let mut req = bed.request(&["Assets/Buildings/House.prefab"], "");
+    req.export_dir = None;
+    let (r, _) = bed.run(&req, Arc::new(AtomicBool::new(false)));
+    let it = &r.items[0];
+    assert_eq!(it.fidelity, "strict");
+    let job = PathBuf::from(it.job_dir.as_ref().unwrap());
+    let app = it.candidates[0].post.as_ref().unwrap().fidelity.clone().unwrap();
+    let s = uis_core::settings::load(&bed.home);
+    let cli = uis_core::jobs::candidate_fidelity(&bed.home, &s, &job, 1, None).unwrap();
+    assert_eq!(cli.report.metrics, app.metrics, "the same pair and preparation as the app");
+    assert_eq!(cli.report.report.pass, app.report.pass);
+    assert_eq!(cli.raw, job.join("gen").join("cand-01").join("raw.png"));
+    // A finished icon given directly is taken back to its job and candidate
+    let master = job.join("post").join("cand-01").join("master-1024.png");
+    assert_eq!(uis_core::jobs::job_of_finished_picture(&master), Some((job.clone(), 1)));
+    assert_eq!(uis_core::jobs::job_of_finished_picture(&job.join("capture").join("capture.png")), None);
+}
