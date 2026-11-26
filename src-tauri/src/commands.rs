@@ -73,7 +73,8 @@ fn is_inside(path: &Path, root: &Path) -> bool {
     p == r || p.starts_with(&(r + "\\"))
 }
 
-/// Opens a folder or file in Explorer, only inside the tool's home or the export folder.
+/// Opens a folder or file in Explorer, only inside the tool's home, the work and export folders
+/// and the projects on the list.
 #[tauri::command]
 pub fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
     let home = home();
@@ -86,6 +87,8 @@ pub fn open_path(app: tauri::AppHandle, path: String) -> Result<(), String> {
     if let Some(dir) = &s.work_dir {
         roots.push(PathBuf::from(dir));
     }
+    // the projects on the list (Explorer only shows them; nothing is written)
+    roots.extend(s.projects.iter().map(|p| PathBuf::from(&p.path)));
     if !roots.iter().any(|r| is_inside(&target, r)) {
         return Err("outside".into());
     }
@@ -112,4 +115,94 @@ mod tests {
         assert!(!is_inside(Path::new("C:/fake/a/bc/d"), Path::new("C:/fake/a/b")));
         assert!(!is_inside(Path::new("C:/fake/other"), Path::new("C:/fake/a")));
     }
+}
+
+// ---------------------------------------------------------------- projects and prefabs
+
+use std::sync::atomic::AtomicBool;
+use uis_core::prefabs::{ScanOptions, ScanResult};
+use uis_core::projects::{self, Override, ProjectSummary};
+
+/// One scan at a time (a second press while one runs gets `busy`).
+static SCANNING: AtomicBool = AtomicBool::new(false);
+
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn project_list() -> Result<Vec<ProjectSummary>, String> {
+    blocking(|| Ok(projects::list(&home()))).await
+}
+
+/// Adds the Unity project at `path` (or the one it is inside). Same folder again: the same entry.
+#[tauri::command]
+pub async fn project_add(path: String) -> Result<ProjectSummary, String> {
+    blocking(move || projects::add(&home(), Path::new(&path))).await
+}
+
+/// The folder picker, then `project_add`. None when the person cancelled.
+#[tauri::command]
+pub async fn project_pick(app: tauri::AppHandle) -> Result<Option<ProjectSummary>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let picked = tauri::async_runtime::spawn_blocking(move || app.dialog().file().blocking_pick_folder())
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(folder) = picked else { return Ok(None) };
+    let path = folder.into_path().map_err(|e| format!("path:{e}"))?;
+    blocking(move || projects::add(&home(), &path).map(Some)).await
+}
+
+#[tauri::command]
+pub fn project_remove(id: String) -> Result<(), String> {
+    projects::remove(&home(), &id)
+}
+
+/// How a capture would run now (lock file, version, packages, branch).
+#[tauri::command]
+pub async fn project_probe(id: String) -> Result<ProjectSummary, String> {
+    blocking(move || {
+        let home = home();
+        let entry = projects::entry(&home, &id)?;
+        Ok(projects::summary(&home, &entry))
+    })
+    .await
+}
+
+/// Unity Hub's project list (read only).
+#[tauri::command]
+pub async fn hub_projects() -> Result<Vec<uis_core::project::HubProject>, String> {
+    blocking(|| Ok(uis_core::project::hub_projects())).await
+}
+
+#[tauri::command]
+pub async fn prefab_scan(id: String, force: bool, include_models: bool) -> Result<ScanResult, String> {
+    let Some(_guard) = uis_core::proc::Busy::try_take(&SCANNING) else {
+        return Err("busy".into());
+    };
+    blocking(move || {
+        let home = home();
+        let entry = projects::entry(&home, &id)?;
+        let pack = uis_core::packs::load(&home, &entry.pack_id).map_err(|e| format!("pack:{e}"))?;
+        let options = ScanOptions { force, include_models, kind_overrides: projects::kind_overrides(&home, &id) };
+        uis_core::prefabs::scan(&home, Path::new(&entry.path), &pack, &options)
+    })
+    .await
+}
+
+/// A person's choice for one prefab (kind, side, rotation, front axis); `null` clears a key.
+#[tauri::command]
+pub fn prefab_override(id: String, guid: String, patch: Map<String, Value>) -> Result<Override, String> {
+    projects::set_override(&home(), &id, &guid, &patch)
+}
+
+#[tauri::command]
+pub fn pack_list() -> Vec<uis_core::packs::PackSummary> {
+    uis_core::packs::list(&home())
+}
+
+/// A pack after `extends` (read only).
+#[tauri::command]
+pub fn pack_get(id: String) -> Result<Value, String> {
+    uis_core::packs::load(&home(), &id).map(|p| p.doc)
 }

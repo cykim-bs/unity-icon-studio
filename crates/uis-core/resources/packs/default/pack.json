@@ -1,0 +1,61 @@
+{
+  "schema": "unity-icon-studio.pack/1",
+  "id": "default",
+  "name": { "ko": "캐주얼 두꺼운 외곽선", "en": "Casual thick outline" },
+  "extends": null,
+  "kinds": {
+    "building": {
+      "capture": {
+        "front": "+z", "yaw": 28, "pitch": 30, "projection": "orthographic", "padding": 0.06, "supersample": 2,
+        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": true }
+      },
+      "layout": "bottom"
+    },
+    "prop": {
+      "capture": {
+        "front": "+z", "yaw": 25, "pitch": 18, "projection": "orthographic", "padding": 0.06, "supersample": 2,
+        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": false }
+      },
+      "layout": "center"
+    },
+    "character": {
+      "capture": {
+        "front": "+z", "yaw": 20, "pitch": 10, "projection": "orthographic", "padding": 0.06, "supersample": 2, "pose": "defaultState",
+        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": false }
+      },
+      "layout": "center"
+    },
+    "generic": {
+      "capture": {
+        "front": "+z", "yaw": 28, "pitch": 30, "projection": "orthographic", "padding": 0.06, "supersample": 2,
+        "light": { "elevation": 50, "azimuth": -30, "color": [1, 0.96, 0.84], "ambient": 0.6, "shadows": true }
+      },
+      "layout": "center"
+    }
+  },
+  "kindRules": [],
+  "outline": { "color": "#753719", "widthPct": 1.45 },
+  "canvas": { "fillPct": 88, "bottomTopRatio": 0.6 },
+  "checks": {
+    "default": {
+      "cornerAlphaMax": 0,
+      "marginMinPx": 2,
+      "size": [0.82, 0.97],
+      "fill": [0.38, 0.72],
+      "centerXPx": 6,
+      "largestPart": 0.98,
+      "outlineDeltaE": 8,
+      "outlineUniform": 0.85,
+      "outlineWidthPx": [3.0, 5.0],
+      "edgeSoftness": 1.5,
+      "saturation": [0.35, 0.62],
+      "value": [0.74, 0.96],
+      "innerDark": 0.06,
+      "highlight": 0.30
+    },
+    "prop": { "fill": [0.25, 0.60], "size": [0.80, 0.95] }
+  },
+  "styleRefs": [],
+  "bannedTerms": [],
+  "prompt": { "templateVersion": "1", "order": ["HEADER", "GOAL", "ROLES", "STYLE", "SUBJECT", "CAMERA", "AVOID", "OUTPUT"], "blocks": {} }
+}

@@ -1,0 +1,17 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100
+GameObject:
+  m_Name: Crate
+--- !u!4 &101
+Transform:
+  m_GameObject: {fileID: 100}
+--- !u!33 &102
+MeshFilter:
+  m_GameObject: {fileID: 100}
+  m_Mesh: {fileID: 4300000, guid: a1000000000000000000000000000001, type: 3}
+--- !u!23 &103
+MeshRenderer:
+  m_GameObject: {fileID: 100}
+  m_Materials:
+  - {fileID: 2100000, guid: c3000000000000000000000000000001, type: 2}

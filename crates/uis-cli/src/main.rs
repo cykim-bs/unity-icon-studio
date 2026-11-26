@@ -1,43 +1,91 @@
 //! `uis`: the command line of Icon Studio. It uses the same home folder and functions as the app.
-//! Commands print JSON with `--json` (plain text otherwise).
+//! Commands print JSON with `--json` (a short text summary otherwise).
 
-use serde_json::json;
+use serde_json::{json, Value};
+use std::path::PathBuf;
 use uis_core::home::Home;
 
 const USAGE: &str = "usage: uis <command> [options]
 
 commands:
+  scan <project> [--force] [--models] [--pack <id>] [--json]
+                       list and classify the prefabs of a Unity project (no Unity needed)
+  probe <project> [--json]
+                       how a capture would run now (lock file, version, packages)
+  hub [--json]         the projects Unity Hub lists
+  packs [--json]       style packs (the default one and local ones)
   home [--json]        the tool's home folder and settings file
   settings             the settings in effect (JSON)
   --version            the version
 ";
 
+struct Args {
+    json: bool,
+    flags: Vec<String>,
+    values: Vec<(String, String)>,
+    positional: Vec<String>,
+}
+
+impl Args {
+    fn parse(raw: Vec<String>) -> Args {
+        let mut out = Args { json: false, flags: Vec::new(), values: Vec::new(), positional: Vec::new() };
+        let mut it = raw.into_iter();
+        while let Some(a) = it.next() {
+            match a.as_str() {
+                "--json" => out.json = true,
+                "--pack" => {
+                    if let Some(v) = it.next() {
+                        out.values.push((a, v));
+                    }
+                }
+                _ if a.starts_with("--") => out.flags.push(a),
+                _ => out.positional.push(a),
+            }
+        }
+        out
+    }
+    fn has(&self, flag: &str) -> bool {
+        self.flags.iter().any(|f| f == flag)
+    }
+    fn value(&self, name: &str) -> Option<&str> {
+        self.values.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
+    }
+}
+
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let json_out = args.iter().any(|a| a == "--json");
-    let rest: Vec<&str> = args.iter().map(String::as_str).filter(|a| *a != "--json").collect();
-    let code = match rest.first().copied() {
-        Some("--version") | Some("-V") => {
-            println!("uis {}", uis_core::VERSION);
+    let raw: Vec<String> = std::env::args().skip(1).collect();
+    if raw.iter().any(|a| a == "--version" || a == "-V") {
+        println!("uis {}", uis_core::VERSION);
+        return;
+    }
+    let args = Args::parse(raw);
+    let code = match args.positional.first().map(String::as_str) {
+        Some("scan") => scan(&args),
+        Some("probe") => probe(&args),
+        Some("hub") => {
+            print_value(&serde_json::to_value(uis_core::project::hub_projects()).unwrap_or_default(), true);
+            0
+        }
+        Some("packs") => {
+            print_value(&serde_json::to_value(uis_core::packs::list(&Home::resolve())).unwrap_or_default(), true);
             0
         }
         Some("home") => {
             let home = Home::resolve();
-            let value = json!({
-                "home": home.root(),
-                "override": Home::is_override(),
-                "settingsFile": home.settings_file(),
-            });
-            print_value(&value, json_out);
+            let value = json!({ "home": home.root(), "override": Home::is_override(), "settingsFile": home.settings_file() });
+            print_value(&value, args.json);
             0
         }
         Some("settings") => {
-            let home = Home::resolve();
-            let settings = uis_core::settings::load(&home);
+            let settings = uis_core::settings::load(&Home::resolve());
             print_value(&serde_json::to_value(&settings).unwrap_or_default(), true);
             0
         }
-        Some("help") | Some("--help") | Some("-h") | None => {
+        Some("help") | None => {
+            print!("{USAGE}");
+            0
+        }
+        _ if args.has("--help") || args.has("-h") => {
             print!("{USAGE}");
             0
         }
@@ -49,7 +97,93 @@ fn main() {
     std::process::exit(code);
 }
 
-pub(crate) fn print_value(value: &serde_json::Value, json_out: bool) {
+fn project_arg(args: &Args) -> Option<PathBuf> {
+    args.positional.get(1).map(PathBuf::from)
+}
+
+fn fail(args: &Args, code: &str) -> i32 {
+    if args.json {
+        println!("{}", json!({ "error": code }));
+    } else {
+        eprintln!("uis: {code}");
+    }
+    1
+}
+
+fn scan(args: &Args) -> i32 {
+    let Some(path) = project_arg(args) else {
+        eprintln!("uis scan: give a project folder\n\n{USAGE}");
+        return 2;
+    };
+    let home = Home::resolve();
+    let path = uis_core::project::find_project_root(&path).unwrap_or(path);
+    // A project on the list uses its pack and the kinds a person chose; --pack replaces the pack
+    let listed = uis_core::settings::load(&home)
+        .projects
+        .into_iter()
+        .find(|p| PathBuf::from(&p.path).canonicalize().ok() == path.canonicalize().ok());
+    let pack_id = args
+        .value("--pack")
+        .map(str::to_string)
+        .or_else(|| listed.as_ref().map(|p| p.pack_id.clone()))
+        .unwrap_or_else(|| uis_core::packs::DEFAULT_ID.into());
+    let pack = match uis_core::packs::load(&home, &pack_id) {
+        Ok(p) => p,
+        Err(e) => return fail(args, &format!("pack:{e}")),
+    };
+    let options = uis_core::prefabs::ScanOptions {
+        force: args.has("--force"),
+        include_models: args.has("--models"),
+        kind_overrides: listed.map(|p| uis_core::projects::kind_overrides(&home, &p.id)).unwrap_or_default(),
+    };
+    match uis_core::prefabs::scan(&home, &path, &pack, &options) {
+        Ok(result) => {
+            if args.json {
+                print_value(&serde_json::to_value(&result).unwrap_or_default(), true);
+            } else {
+                println!("{}  pack {}", result.project, result.pack_id);
+                println!("prefabs {}  {:?}", result.total, result.counts);
+                println!("kinds   {:?}", result.kinds);
+                println!(
+                    "metas {}  models {}  {} ms  (read {} prefabs, {} metas; cached {}, {})",
+                    result.metas,
+                    result.models,
+                    result.elapsed_ms,
+                    result.cache.prefabs_read,
+                    result.cache.metas_read,
+                    result.cache.prefabs_cached,
+                    result.cache.metas_cached
+                );
+            }
+            0
+        }
+        Err(e) => fail(args, &e),
+    }
+}
+
+fn probe(args: &Args) -> i32 {
+    let Some(path) = project_arg(args) else {
+        eprintln!("uis probe: give a project folder\n\n{USAGE}");
+        return 2;
+    };
+    let result = uis_core::project::probe(&path);
+    let value = serde_json::to_value(&result).unwrap_or_default();
+    if args.json {
+        print_value(&value, true);
+    } else {
+        println!("{}  {} ({})", value["path"].as_str().unwrap_or(""), result.mode, result.reason);
+        println!(
+            "unity {}  branch {}  pipeline {}  urp {}",
+            value["unityVersion"].as_str().unwrap_or("?"),
+            value["branch"].as_str().unwrap_or("-"),
+            value["pipelinePackage"],
+            value["urp"]
+        );
+    }
+    0
+}
+
+fn print_value(value: &Value, json_out: bool) {
     if json_out {
         println!("{}", serde_json::to_string_pretty(value).unwrap_or_default());
     } else if let Some(obj) = value.as_object() {

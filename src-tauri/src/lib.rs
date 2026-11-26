@@ -48,6 +48,16 @@ pub fn run() {
             commands::settings_reset,
             commands::open_path,
             commands::window_ready,
+            commands::project_list,
+            commands::project_add,
+            commands::project_pick,
+            commands::project_remove,
+            commands::project_probe,
+            commands::hub_projects,
+            commands::prefab_scan,
+            commands::prefab_override,
+            commands::pack_list,
+            commands::pack_get,
         ])
         .setup(|app| {
             let home = uis_core::home::Home::resolve();

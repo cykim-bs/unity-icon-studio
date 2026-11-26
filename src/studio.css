@@ -338,3 +338,213 @@
   border-color: var(--hot);
   background: var(--hot);
 }
+
+/* ---- chips as toggles (several on at once) ---- */
+.chip-btn[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--selected-bg);
+  color: var(--fg);
+}
+.chip-count {
+  margin-left: 5px;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+#list-count {
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ---- state dots: batch / open editor / cannot capture ---- */
+.state-dot {
+  flex: none;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.state-dot.mode-attach {
+  background: var(--info);
+}
+.state-dot.mode-blocked {
+  background: transparent;
+  border: 1.5px solid var(--muted);
+}
+.head-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
+/* ---- projects panel ---- */
+.project-list,
+.pack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.project-row {
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+.project-row:hover {
+  background: var(--hover);
+}
+.project-row.selected {
+  background: var(--selected-bg);
+}
+.project-row:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.project-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.project-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.project-sub {
+  margin: 2px 0 0 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+.pack-row {
+  padding: 4px 8px;
+  font-size: 12px;
+}
+
+/* ---- prefab grid: cells 140 x 168, the well 124 square ---- */
+.prefab-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, 140px);
+  justify-content: start;
+  gap: 8px;
+  padding: 6px 12px 16px;
+}
+.prefab-cell {
+  position: relative;
+  width: 140px;
+  height: 168px;
+  padding: 8px;
+  border-radius: 10px;
+  cursor: default;
+  user-select: none;
+}
+.prefab-cell:hover {
+  background: var(--hover);
+}
+.prefab-cell.selected {
+  background: var(--selected-bg);
+}
+#list:focus-visible .prefab-cell.focus {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+.prefab-well {
+  display: grid;
+  place-items: center;
+  width: 124px;
+  height: 104px;
+  border-radius: 8px;
+  background: var(--sidebar-bg);
+  color: var(--muted);
+}
+.prefab-well svg {
+  width: 40px;
+  height: 40px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.prefab-name {
+  margin-top: 6px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.prefab-badge {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+  font-size: 10.5px;
+  line-height: 16px;
+}
+
+/* ---- details ---- */
+.details-head {
+  margin-bottom: 8px;
+}
+.details-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+dl.details {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 8px 0 0;
+  font-size: 12.5px;
+}
+dl.details dt {
+  color: var(--muted);
+}
+dl.details dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.kind-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kind-select {
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+}
+.body-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+#body-content .ready-list {
+  margin-top: 18px;
+}
+.body-empty {
+  padding: 18px 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.body-empty p {
+  margin: 0;
+}

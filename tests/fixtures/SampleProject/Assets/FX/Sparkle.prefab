@@ -1,0 +1,15 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &100
+GameObject:
+  m_Name: Sparkle
+--- !u!4 &101
+Transform:
+  m_GameObject: {fileID: 100}
+--- !u!198 &105
+ParticleSystem:
+  m_GameObject: {fileID: 100}
+--- !u!199 &106
+ParticleSystemRenderer:
+  m_GameObject: {fileID: 100}
+  m_Mesh: {fileID: 0}
