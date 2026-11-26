@@ -22,16 +22,17 @@ flowchart LR
   F --> G[Generate image<br>Codex]
   R --> G
   G --> O[Outline, transparent background, sizes<br>in code]
-  O --> K[Checks] --> E[Export]
+  O --> K[Checks and fidelity review] --> E[Export]
+  K -->|differs: once more| G
 ```
 
 1. **Projects and prefabs:** add a project folder; the app reads its `.prefab` files without Unity, sorts them into 3D, UI, 2D and FX, and guesses a kind (building, prop, character, other).
 2. **Capture:** Unity captures the picked prefabs at 1024 px on a transparent background, with a fixed camera and light per kind.
 3. **Fixed prompt:** the code assembles the sentence blocks of the style pack; the capture's camera values go into the text.
 4. **Note and rewrite:** an empty note calls no LLM and sends the fixed prompt as it is. With a note, the rewriting model may only replace or add unlocked sentences; the code checks that every locked sentence is byte for byte the same and shows a before/after.
-5. **Generate:** Codex's built-in image tool redraws the capture (with the style references), in a fresh temporary session each time.
+5. **Generate:** Codex's built-in image tool repaints the capture, in a fresh temporary session each time. The default is **keep the original**: every part keeps its count, place, relative size and pattern, and nothing the capture lacks (sparkles, hearts …) is added. "Stylize" allows exaggeration, simplification, small charms and the style references.
 6. **Finish:** alpha, layout on the canvas, the outline, and downscaling to 256 px (512 px optional). The 1024 px picture is kept.
-7. **Check and export:** pixel checks (fill, outline width, saturation …); the candidate a person picks goes to a folder outside the project.
+7. **Check and export:** pixel checks (fill, outline width …) and, when keeping the original, fidelity checks against the capture (proportions, new colors, pieces outside the silhouette, color change) and an LLM fidelity review (added, resized, missing parts). A picture that differs is made once more with a sentence naming the parts to fix; if it still differs it is marked and a person decides. The picked candidate goes to a folder outside the project.
 
 ## Requirements
 
@@ -139,6 +140,7 @@ A style pack is a JSON file with the camera per kind, the prompt's sentence bloc
 - Prompt sentences are marked locked or open. **Locked sentences** (camera, outline, background, the don'ts) go byte for byte even with a note; a note can only change open sentences (color, surface, mood, simplification) or add sentences.
 - A reference picture whose file name holds the target prefab's name is left out (so an icon is never copied from itself).
 - Words in `bannedTerms`, and notes that would add a background, text or a logo, are not applied; the screen lists them with the reason.
+- Strict and stylized sentences, additions asked for in a note, and the fidelity checks, review and retry are described in [Writing style packs](docs/style-packs.en.md).
 
 ## Two ways to capture, and what stays in the project
 
@@ -170,7 +172,9 @@ The settings file is `%USERPROFILE%\.unity-icon-studio\settings.json` (the envir
 | `claude.enabled`, `claude.model`, `claude.effort` | `true`, `sonnet`, `low` | Use Claude, and its model for rewrites |
 | `llm.rewriter` | `claude` | Rewriting CLI (falls back to Codex) |
 | `generate.candidates`, `generate.outline`, `generate.background` | `1`, `code`, `transparent` | Candidates, outline (code, model, none), background (transparent, flat) |
-| `generate.styleRefs` | `true` | Send the pack's reference pictures |
+| `generate.styleRefs` | `true` | Send the pack's reference pictures (stylized only) |
+| `generate.fidelity`, `generate.fidelityRetries` | `strict`, `1` | Keep the original or stylize; tries with corrections when a picture differs (0 to 2) |
+| `llm.fidelityReview` | `codex` | Fidelity review of kept-original pictures (`off`, `claude`, `codex`, `both`) |
 
 ## Command line `uis`
 
@@ -181,7 +185,8 @@ cargo run -q -p uis-cli -- run --project C:\Projects\MyGame --prefab Assets/Prop
 cargo run -q -p uis-cli -- help
 ```
 
-Commands: `scan`, `probe`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `board`, `run`, `export`, `jobs`, `packs`, `hub`.
+Commands: `scan`, `probe`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub`.
+`run` takes `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N` and `--capture <png> --kind <kind>` (that picture instead of a capture); `fidelity <capture> <generated> [--review both]` only measures and reviews.
 
 ## Accounts and terms
 
@@ -225,7 +230,7 @@ Not checked: HDRP and the built-in render pipeline, Unity 2022.3 and older, Dire
 | `npm test` | Screen unit tests (vitest + jsdom) |
 | `npm run build` | Text table check (`scripts\check-i18n.mjs`) + type check + screen build |
 | `cargo test --workspace` | Core, command line and stand-in CLI tests |
-| `scripts\e2e-stub.ps1` | `uis run` end to end with stand-in programs, three failures, rewrite and review on both paths (Claude, Codex) and the fallback when Claude is missing |
+| `scripts\e2e-stub.ps1` | `uis run` end to end with stand-in programs, three failures, rewrite and review on both paths (Claude, Codex) and the fallback when Claude is missing, the strict fidelity review on both paths and the retry |
 | `scripts\drive-window.mjs` | For end-to-end checks in the real window: presses buttons, reads the state and takes screenshots through the WebView2 remote debugging port, which is open only in the app it `launch`es. `scripts\window-e2e.json` is the whole flow against the stand-ins |
 | `npm run dev` → `http://localhost:1441/?sample=1` | Browser preview (made-up data). `?lang=en`, `?theme=dark`, `?pick=1`, `?fail=limit` |
 

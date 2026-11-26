@@ -21,16 +21,17 @@ flowchart LR
   F --> G[이미지 생성<br>Codex]
   R --> G
   G --> O[외곽선·투명 배경·크기<br>코드]
-  O --> K[자동 검사] --> E[내보내기]
+  O --> K[자동 검사·충실도 검수] --> E[내보내기]
+  K -->|원본과 다르면 1회| G
 ```
 
 1. **프로젝트·프리팹 목록:** 프로젝트 폴더를 추가하면 Unity 없이 `.prefab`을 읽어 3D·UI·2D·FX로 나누고, 종류(건물·소품·캐릭터·기타)를 추정합니다.
 2. **촬영:** 고른 프리팹을 Unity가 투명 배경 1024px로 찍습니다. 종류마다 정해진 구도(카메라 각도·조명)를 씁니다.
 3. **고정 프롬프트:** 스타일 묶음의 문장 블록을 코드가 조립합니다. 촬영 구도 값도 문장에 들어갑니다.
 4. **첨언과 재가공:** 첨언이 비어 있으면 LLM을 부르지 않고 고정 프롬프트를 그대로 보냅니다. 첨언이 있으면 재가공 모델이 잠기지 않은 문장만 바꾸거나 더하고, 코드가 잠긴 문장이 바이트 그대로인지 확인한 뒤 전후 비교를 보여 줍니다.
-5. **생성:** Codex의 내장 이미지 도구가 촬영본(과 스타일 참고 그림)을 받아 그립니다. 매번 빈 임시 세션입니다.
+5. **생성:** Codex의 내장 이미지 도구가 촬영본을 받아 다시 칠합니다. 매번 빈 임시 세션입니다. 기본은 **원본 유지**입니다: 부품의 개수·위치·상대 크기·무늬를 지키고 촬영본에 없는 것(반짝이·하트 등)을 더하지 않습니다. 「꾸미기」를 고르면 과장·단순화·작은 장식과 스타일 참고 그림을 씁니다.
 6. **후처리:** 알파를 확보하고, 캔버스에 배치하고, 외곽선을 그리고, 256px(선택 512px)로 줄입니다. 1024px 원본도 남깁니다.
-7. **검사·내보내기:** 채움 비율·외곽선 두께·채도 같은 픽셀 검사를 하고, 사람이 고른 후보를 프로젝트 밖 폴더로 내보냅니다.
+7. **검사·내보내기:** 채움 비율·외곽선 두께 같은 픽셀 검사와, 원본 유지일 때 촬영본 대비 충실도 검사(비율·없던 색·실루엣 밖 조각·색 변화)와 LLM 충실도 검수(추가·크기 변화·빠짐)를 합니다. 원본과 다르면 지적된 부품을 고치라는 문장을 붙여 한 번 더 만들고, 그래도 다르면 표시만 하고 사람이 고릅니다. 고른 후보를 프로젝트 밖 폴더로 내보냅니다.
 
 ## 준비물
 
@@ -140,6 +141,7 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 - 프롬프트 문장에는 잠금 표시가 있습니다. **잠긴 문장**(구도·외곽선·배경·금지 항목 등)은 첨언이 있어도 바이트 그대로 보냅니다. 첨언은 잠기지 않은 문장(색·질감·분위기·단순화 정도)만 바꾸거나 문장을 더합니다.
 - 참고 그림 중 파일 이름에 대상 프리팹 이름이 든 것은 자동으로 뺍니다(자기 아이콘을 베끼지 않게).
 - `bannedTerms`에 든 낱말과 배경·글자·로고를 더하는 첨언은 반영하지 않고 이유와 함께 보여 줍니다.
+- 원본 유지(`strict`)·꾸미기(`stylized`) 문장, 첨언으로 요청한 추가, 충실도 검사·검수·재시도는 [스타일 묶음 작성 가이드](docs/style-packs.md)에 있습니다.
 
 ## 촬영 방식 두 가지와 프로젝트에 남기는 것
 
@@ -171,7 +173,9 @@ npm run tauri build -- --no-bundle   # target\release\unity-icon-studio.exe
 | `claude.enabled`, `claude.model`, `claude.effort` | `true`, `sonnet`, `low` | Claude 사용 여부와 재가공 모델 |
 | `llm.rewriter` | `claude` | 재가공 CLI(없으면 Codex로 바꿈) |
 | `generate.candidates`, `generate.outline`, `generate.background` | `1`, `code`, `transparent` | 후보 수, 외곽선(코드·모델·없음), 배경(투명·단색) |
-| `generate.styleRefs` | `true` | 묶음의 참고 그림을 함께 보냄 |
+| `generate.styleRefs` | `true` | 묶음의 참고 그림을 함께 보냄(꾸미기일 때만) |
+| `generate.fidelity`, `generate.fidelityRetries` | `strict`, `1` | 원본 유지·꾸미기, 원본과 다를 때 교정 문장으로 다시 만드는 횟수(0~2) |
+| `llm.fidelityReview` | `codex` | 원본 유지 그림의 충실도 검수(`off`·`claude`·`codex`·`both`) |
 
 ## 명령줄 `uis`
 
@@ -182,7 +186,8 @@ cargo run -q -p uis-cli -- run --project C:\Projects\MyGame --prefab Assets/Prop
 cargo run -q -p uis-cli -- help
 ```
 
-`scan`, `probe`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `board`, `run`, `export`, `jobs`, `packs`, `hub` 명령이 있습니다.
+`scan`, `probe`, `capture`, `recover`, `readiness`, `prompt`, `rewrite`, `generate`, `post`, `check`, `fidelity`, `board`, `run`, `export`, `jobs`, `packs`, `hub` 명령이 있습니다.
+`run`은 `--fidelity strict|stylized`, `--review off|claude|codex|both`, `--retries N`, `--capture <png> --kind <종류>`(촬영 대신 그 그림)을 받고, `fidelity <촬영본> <생성본> [--review both]`는 충실도 측정과 검수만 합니다.
 
 ## 계정과 약관
 
@@ -226,7 +231,7 @@ cargo run -q -p uis-cli -- help
 | `npm test` | 화면 단위 시험(vitest + jsdom) |
 | `npm run build` | 문자열 표 검사(`scripts\check-i18n.mjs`) + 타입 검사 + 화면 빌드 |
 | `cargo test --workspace` | 코어·명령줄·가짜 CLI 시험 |
-| `scripts\e2e-stub.ps1` | 가짜 프로그램으로 `uis run` 끝단 시험, 실패 경우 3가지, 재가공·검수의 Claude·Codex 두 경로와 Claude 없음 대체 |
+| `scripts\e2e-stub.ps1` | 가짜 프로그램으로 `uis run` 끝단 시험, 실패 경우 3가지, 재가공·검수의 Claude·Codex 두 경로와 Claude 없음 대체, 원본 유지의 충실도 검수(두 경로)와 재시도 |
 | `scripts\drive-window.mjs` | 실제 창 끝단 확인용: WebView2 원격 디버깅 포트로 앱 창의 버튼을 누르고 상태를 읽고 화면을 찍습니다. `launch`로 띄운 그 앱에만 포트가 열립니다. `scripts\window-e2e.json`은 가짜 프로그램으로 처음부터 끝까지 도는 순서입니다 |
 | `npm run dev` → `http://localhost:1441/?sample=1` | 브라우저 미리보기(가짜 데이터). `?lang=en`, `?theme=dark`, `?pick=1`, `?fail=limit` |
 
