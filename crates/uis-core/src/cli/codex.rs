@@ -87,7 +87,7 @@ pub fn find(home: &Home, settings: &Settings) -> Option<Found> {
 
 fn command(found: &Found) -> Cmd {
     if found.via_cmd {
-        Cmd::new("cmd").args(["/d", "/c"]).arg(found.path.clone())
+        Cmd::new(proc::system_exe("cmd.exe")).args(["/d", "/c"]).arg(found.path.clone())
     } else {
         Cmd::new(&found.path)
     }
@@ -169,9 +169,10 @@ fn script_path(home: &Home) -> Result<PathBuf, String> {
 pub fn app_info(home: &Home) -> Result<AppInfo, String> {
     let script = script_path(home)?;
     let out = proc::run(
-        &Cmd::new("powershell.exe")
+        &Cmd::new(proc::system_exe("WindowsPowerShell/v1.0/powershell.exe"))
             .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"])
-            .arg(script)
+            .arg(&script)
+            .cwd(script.parent().map(Path::to_path_buf).unwrap_or_else(|| home.runtime_dir()))
             .timeout(PROBE_TIMEOUT),
     )?;
     if !out.success() {

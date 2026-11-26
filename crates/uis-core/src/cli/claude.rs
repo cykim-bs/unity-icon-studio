@@ -39,7 +39,7 @@ pub fn find(settings: &Settings) -> Option<Found> {
 
 /// The command with a clean environment.
 pub fn command(found: &Found) -> Cmd {
-    let base = if found.via_cmd { Cmd::new("cmd").args(["/d", "/c"]).arg(found.path.clone()) } else { Cmd::new(&found.path) };
+    let base = if found.via_cmd { Cmd::new(proc::system_exe("cmd.exe")).args(["/d", "/c"]).arg(found.path.clone()) } else { Cmd::new(&found.path) };
     let mut cmd = base.remove_env_prefixes(CLAUDE_ENV_PREFIXES);
     if let Some(v) = std::env::var_os(KEEP_VAR) {
         cmd = cmd.env(KEEP_VAR, v.to_string_lossy().into_owned());

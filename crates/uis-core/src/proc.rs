@@ -226,6 +226,14 @@ fn wait(child: &mut Child, limit: Option<Duration>, job: &Option<job::Job>) -> O
     }
 }
 
+/// A Windows program by its full path under `%SystemRoot%\System32` (`cmd.exe`,
+/// `WindowsPowerShell/v1.0/powershell.exe`), so a file of the same name in the working folder or
+/// on PATH is never run instead.
+pub fn system_exe(relative: &str) -> PathBuf {
+    let root = std::env::var_os("SystemRoot").filter(|v| !v.is_empty()).map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+    relative.split(['\\', '/']).fold(root.join("System32"), |p, part| p.join(part))
+}
+
 /// True while a process with that id runs.
 pub fn pid_alive(pid: u32) -> bool {
     job::pid_alive(pid)
@@ -355,6 +363,14 @@ mod tests {
         assert_eq!(out(Outcome::TimedOut, "", "").code(), "timeout");
         assert_eq!(out(Outcome::Exited(2), "\n  bad thing\nmore", "x").code(), "exit:2:bad thing");
         assert_eq!(out(Outcome::Exited(3), "", "only out").code(), "exit:3:only out");
+    }
+
+    #[test]
+    fn system_programs_have_full_paths() {
+        let cmd = system_exe("cmd.exe");
+        assert!(cmd.is_absolute() && cmd.ends_with("System32/cmd.exe"), "{}", cmd.display());
+        let ps = system_exe("WindowsPowerShell/v1.0/powershell.exe");
+        assert!(ps.ends_with("System32/WindowsPowerShell/v1.0/powershell.exe"));
     }
 
     #[test]

@@ -83,7 +83,22 @@ pub fn on_white(src: &Path, dst: &Path) -> Result<(), String> {
     out.save_with_format(dst, ::image::ImageFormat::Png).map_err(|e| format!("image:{e}"))
 }
 
-/// The pack's style references (paths from the pack folder), without those named like `name`.
+/// A style reference path of a pack: relative, no `..`, and still inside the pack folder once
+/// links are resolved. A pack is a file people pass around; its pictures are sent to Codex, so a
+/// path must not reach other files on the PC.
+fn pack_ref_path(dir: &Path, rel: &str) -> Option<PathBuf> {
+    let p = Path::new(rel);
+    let plain = p.components().all(|c| matches!(c, std::path::Component::Normal(_) | std::path::Component::CurDir));
+    if rel.trim().is_empty() || p.is_absolute() || !plain {
+        return None;
+    }
+    let full = dir.join(p);
+    let (real, root) = (std::fs::canonicalize(&full).ok()?, std::fs::canonicalize(dir).ok()?);
+    (real.starts_with(&root) && real.is_file()).then_some(full)
+}
+
+/// The pack's style references (paths from the pack folder, kept inside it), without those named
+/// like `name`.
 pub fn pack_refs(pack: &Pack, name: Option<&str>) -> Vec<PathBuf> {
     let Some(dir) = &pack.dir else { return Vec::new() };
     let skip = name.map(|n| n.to_lowercase()).filter(|n| !n.is_empty());
@@ -93,8 +108,7 @@ pub fn pack_refs(pack: &Pack, name: Option<&str>) -> Vec<PathBuf> {
         .map(|a| {
             a.iter()
                 .filter_map(|v| v.as_str().or_else(|| v.get("path").and_then(Value::as_str)))
-                .map(|p| dir.join(p))
-                .filter(|p| p.is_file())
+                .filter_map(|p| pack_ref_path(dir, p))
                 .filter(|p| {
                     let stem = p.file_stem().map(|s| s.to_string_lossy().to_lowercase()).unwrap_or_default();
                     skip.as_ref().is_none_or(|n| !stem.contains(n.as_str()))
@@ -330,8 +344,13 @@ mod tests {
         }
         let mut pack = Pack::builtin();
         pack.dir = Some(d.clone());
-        pack.doc["styleRefs"] = json!(["refs/icon_bakery.png", { "path": "refs/icon_mill.png" }, "refs/missing.png"]);
-        assert_eq!(pack_refs(&pack, None).len(), 2);
+        std::fs::write(d.join("outside.png"), b"x").unwrap();
+        let abs = d.join("refs/icon_mill.png").display().to_string();
+        pack.doc["styleRefs"] = json!([
+            "refs/icon_bakery.png", { "path": "refs/icon_mill.png" }, "refs/missing.png",
+            "../outside.png", "refs/../../outside.png", abs, ""
+        ]);
+        assert_eq!(pack_refs(&pack, None).len(), 2, "only the two inside the pack folder");
         let r = pack_refs(&pack, Some("Bakery"));
         assert_eq!(r, [d.join("refs/icon_mill.png")]);
         let _ = std::fs::remove_dir_all(&d);
