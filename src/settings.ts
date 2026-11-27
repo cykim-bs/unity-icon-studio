@@ -2,7 +2,7 @@
  * Settings shown in the popup: one entry in `SETTINGS` per key of settings.json, by dotted path
  * (`capture.mode`). Adding an entry makes it appear under its category tab
  * (shell/settings-dialog.ts). Adapted from unity-slot-widget src/settings.ts (itself from
- * https://github.com/cyKim0115/Frond/ @99d89bc), MIT, same author.
+ * https://github.com/cyKim0115/Frond/ @99d89bc), MIT.
  *
  * The values live in settings.json in the tool's home, which a person may edit too, so they come
  * from the Rust side (`settings_get`) and a change is stored by `settings_set(patch)` with only the

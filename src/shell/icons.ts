@@ -1,7 +1,7 @@
 /**
  * 16x16 line icons for buttons made by script; their look comes from CSS `.icon-btn svg`.
- * Static icons sit in index.html. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT,
- * same author (src/icons.ts).
+ * Static icons sit in index.html. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT
+ * (src/icons.ts).
  */
 
 const SVG_NS = "http://www.w3.org/2000/svg";

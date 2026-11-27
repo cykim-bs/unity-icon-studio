@@ -1,7 +1,7 @@
 /**
  * Notices, confirmations and choices inside the app: a <dialog> instead of a native message box, so
  * it follows the theme. Esc and an outside click end as cancel. Buttons are made anew on each call.
- * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/dialog.ts).
+ * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/dialog.ts).
  */
 
 import { t } from "../i18n";

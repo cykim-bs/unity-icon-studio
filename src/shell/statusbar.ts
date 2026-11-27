@@ -2,7 +2,7 @@
  * Status bar helpers: the left slot shows the selected item's path, or a short notice for a moment
  * (`flashStatus`, instead of toasts); items marked `data-drop="n"` give way in order 1, 2, 3...
  * when the bar is too narrow (the path shrinks first on its own). Adapted from
- * https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/main.ts flashStatus).
+ * https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/main.ts flashStatus).
  */
 
 const bar = document.querySelector<HTMLElement>("#statusbar")!;

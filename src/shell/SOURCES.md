@@ -1,7 +1,7 @@
 # src/shell sources
 
 This folder was copied as a whole from [unity-slot-widget](https://github.com/cyKim0115/unity-slot-widget)
-(`src/shell` at commit `70169e4`, MIT License, same author), which had adapted it from Frond. The
+(`src/shell` at commit `70169e4`, MIT License), which had adapted it from Frond. The
 table below is unity-slot-widget's own list of what it changed from Frond; the changes made here
 for Icon Studio follow it.
 
@@ -18,8 +18,8 @@ for Icon Studio follow it.
 
 ## From Frond (unity-slot-widget's list)
 
-The app frame in this folder was copied from the author's Frond app and changed for this app:
-https://github.com/cyKim0115/Frond/ at commit `99d89bc` (MIT License, same author). Each file names its
+The app frame in this folder was copied from the Frond app and changed for this app:
+https://github.com/cyKim0115/Frond/ at commit `99d89bc` (MIT License). Each file names its
 source in its header comment. The Frond name and app icon are not used here (Frond's TRADEMARKS.md);
 the line icons in `index.html` and `icons.ts` are plain SVG paths.
 
@@ -38,5 +38,5 @@ the line icons in `index.html` and `icons.ts` are plain SVG paths.
 | `settings-dialog.ts` | `src/settings-dialog.ts` | Toggle and text items; texts from i18n and `relabel()`; panels placed after an item; an `onOpen` hook; Enter in a field takes the value instead of closing the popup; a reset button keeps its place while hidden |
 | `../settings.ts`, `../settings.test.ts` (outside this folder: app-specific) | `src/settings.ts`, `src/settings.test.ts` | Items are the keys of widget.json with i18n label keys; toggle and text kinds; values come from the Rust side and a change is saved with `update_settings(patch)` (changed keys only, one save at a time) instead of localStorage; whole-number items stay whole instead of snapping to the step; the tests compare ranges, defaults and choices with `src-tauri/src/settings.rs` |
 | `icons.ts` | `src/icons.ts` | The close and reset icons |
-| `theme/tokens.css`, `theme/dark.css`, `theme/base.css` | `src/style.css` (`:root` tokens, dark blocks, `html`/`body`) | Frond's eight shell token names kept, values replaced by a neutral palette (grays with Frond's luminance and no hue, one pink accent; the dark values are the author's photo capture tool's tokens); status tokens (`ok warn hot info batch`, solid row tints) and former literals (`on-danger`, `caption-close`) added; no alpha in any token; `--ring` (focus) and `--selected-bg` are neutral, the accent stays for the main action, counts and "now" marks |
+| `theme/tokens.css`, `theme/dark.css`, `theme/base.css` | `src/style.css` (`:root` tokens, dark blocks, `html`/`body`) | Frond's eight shell token names kept, values replaced by a neutral palette (grays with Frond's luminance and no hue, one pink accent; the dark values are a photo capture tool's tokens); status tokens (`ok warn hot info batch`, solid row tints) and former literals (`on-danger`, `caption-close`) added; no alpha in any token; `--ring` (focus) and `--selected-bg` are neutral, the accent stays for the main action, counts and "now" marks |
 | `shell.css` | `src/style.css` (grid, `.col-header`, `.icon-btn`, side panel, resizer, caption buttons, banner, status bar, `.modal`, dialog, menu) | List in the free width with the details column sized on the right; the banner spans both; the caption cluster is pinned top right; narrow-window rules (side panel over the list below 1000px, details hidden below 720px); token colors only; no product name in CSS content |

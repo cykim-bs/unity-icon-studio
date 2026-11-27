@@ -4,7 +4,7 @@
 # would install into its private copy of AppData.
 # A running copy is asked to close (same as its close box); it is never ended by force.
 # ASCII only: Windows PowerShell 5.1 reads BOM-less scripts in the system code page.
-# After unity-slot-widget scripts/launch-user.ps1 (MIT, same author).
+# After unity-slot-widget scripts/launch-user.ps1 (MIT).
 
 param(
   [switch]$ForceRebuild

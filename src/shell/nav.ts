@@ -2,7 +2,7 @@
  * Left side panel, opened and closed with the toggle at the left end of the title bar
  * (Ctrl+B). Square icon tabs in its header pick the panel; the panels' content is the app's.
  * The width animation is CSS. Below 1000px the panel opens over the list and an outside click
- * closes it. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author
+ * closes it. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT
  * (src/nav.ts; the recent-file list and the file opener are left out, ←/→/Home/End move between tabs).
  */
 

@@ -1,4 +1,4 @@
-// Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/prefs.test.ts).
+// Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/prefs.test.ts).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isBoolean, isNumber, isString, PREFS_PREFIX, readPref, writePref } from "./prefs";
 

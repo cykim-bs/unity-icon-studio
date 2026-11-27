@@ -1,6 +1,6 @@
 /**
  * Screen state (side panel open and tab, column widths, selection, filters, the theme mirror) in
- * localStorage. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author
+ * localStorage. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT
  * (src/prefs.ts; the old-prefix migration is left out).
  *
  * Settings are not here: they live in settings.json in the tool's home (uis-core settings.rs). This is

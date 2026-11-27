@@ -1,8 +1,8 @@
 /*
  * Color tokens, light values. Dark values: dark.css (same names).
  * Neutral palette: gray chrome with no hue and one pink accent, so the only colors on screen are the
- * pictures (a capture or an icon is judged by its colors). The dark values are the author's photo
- * capture tool's tokens (same author); those grays have the relative luminance of Frond's dark values
+ * pictures (a capture or an icon is judged by its colors). The dark values are a photo
+ * capture tool's tokens; those grays have the relative luminance of Frond's dark values
  * (https://github.com/cyKim0115/Frond/ @99d89bc, MIT, src/style.css), saturation 0. The light values
  * follow the same rule from Frond's light values, and the pink is darkened to keep 4.5:1.
  * Every token is a solid color (no alpha): the window's card is opaque (frame.css).

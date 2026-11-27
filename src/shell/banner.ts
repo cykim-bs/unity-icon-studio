@@ -1,7 +1,7 @@
 /**
  * Banner under the title bar: one thing a person should act on now, with buttons. Closing it with
  * its × hides it until the content changes (a different `key`). Adapted from
- * https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/main.ts showBanner, paintBanner,
+ * https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/main.ts showBanner, paintBanner,
  * hideBanner; one banner for the window instead of one per document tab).
  */
 

@@ -2,7 +2,7 @@
  * Parts of the settings popup the schema in settings.ts cannot draw: the About facts (versions,
  * the tool folder and the settings file, a problem reading it). Static texts carry data-t keys so a
  * language change relabels them; the panel reads its state again on `refresh()`, which runs when
- * the popup opens. After unity-slot-widget src/settings-panels.ts (MIT, same author).
+ * the popup opens. After unity-slot-widget src/settings-panels.ts (MIT).
  */
 
 import { call } from "./backend";

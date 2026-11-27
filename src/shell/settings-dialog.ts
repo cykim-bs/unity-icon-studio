@@ -5,7 +5,7 @@
  * `addPanel(category, element, after)`. A change applies and saves at once (no save button), each
  * item has a reset button while it differs from its default, and 「Reset all」 sits at the bottom.
  * Numbers and text are taken on `change` (focus leaves, Enter, spinner) so a value half typed is
- * never applied. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author
+ * never applied. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT
  * (src/settings-dialog.ts): toggle and text items, texts from i18n, `relabel()` for a language
  * change, panels placed after an item, an `onOpen` hook, Enter in a field does not close the popup.
  */

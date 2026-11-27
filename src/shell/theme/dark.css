@@ -1,7 +1,7 @@
 /*
  * Dark values of tokens.css: the photo capture tool's tokens (gray Well/Bg/Side/Line, Fg, Muted, pink
  * Accent, Danger, Warn, the mint tag color as ok, the cool track color as info); see tokens.css.
- * The selector contract is Frond's (https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author):
+ * The selector contract is Frond's (https://github.com/cyKim0115/Frond/ @99d89bc, MIT):
  *   dark = :root[data-theme="dark"], or the system is dark and :root is not [data-theme="light"].
  * theme.ts always sets data-theme after start; the media block covers the first paint when the
  * saved choice is "system" (src/public/theme-boot.js). Both blocks must stay identical

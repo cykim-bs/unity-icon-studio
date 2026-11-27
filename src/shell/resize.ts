@@ -2,7 +2,7 @@
  * Width of the details column (#body-main), dragged at its left edge (#body-resizer) or with ←/→
  * on the focused handle; a double click restores the default. Dragged narrower than half the
  * minimum, the column folds (Ctrl+\ opens it again). Adapted from https://github.com/cyKim0115/Frond/
- * @99d89bc, MIT, same author (src/resize.ts, which sizes Frond's table of contents on the left;
+ * @99d89bc, MIT (src/resize.ts, which sizes Frond's table of contents on the left;
  * here the list takes the free width and the details column on the right is the sized one, and
  * the handle reports aria-valuemin/max).
  *

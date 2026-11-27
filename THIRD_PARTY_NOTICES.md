@@ -8,8 +8,8 @@ caption and side panel icons in `index.html`), parts of `src/settings.ts`, `src/
 `scripts/check-i18n.mjs`, `scripts/launch-user.ps1`, `scripts/build-release.ps1`,
 `scripts/capture-window.ps1` and `scripts/make_icon.py` were copied from
 [unity-slot-widget](https://github.com/cyKim0115/unity-slot-widget) @70169e4 (MIT License), whose
-frame was adapted from [Frond](https://github.com/cyKim0115/Frond/) @99d89bc (MIT License). Both
-have the same author as this app. Per-file sources and changes are listed in `src/shell/SOURCES.md`.
+frame was adapted from [Frond](https://github.com/cyKim0115/Frond/) @99d89bc (MIT License).
+Per-file sources and changes are listed in `src/shell/SOURCES.md`.
 The Frond and unity-slot-widget names and app icons are not used.
 
 The app icon (`app-icon.png`, `src-tauri/icons/`) was drawn for this app from basic shapes

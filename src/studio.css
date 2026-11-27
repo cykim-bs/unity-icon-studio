@@ -2,7 +2,7 @@
  * Studio screens: list tools (find, chips, folder picker), the prefab grid, the details column,
  * empty states. Colors are theme tokens (src/shell/theme); nothing here is translucent. The list
  * tools, link and action buttons and the details-over-list rules come from unity-slot-widget
- * src/slots.css (MIT, same author). The accent fills one control only: the Make icon button.
+ * src/slots.css (MIT). The accent fills one control only: the Make icon button.
  */
 
 :root {

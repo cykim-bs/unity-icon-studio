@@ -1,7 +1,7 @@
 /**
  * Right-click and button menus, drawn as a popover so they follow the theme. popover="auto": an
  * outside click and Esc close it (the browser does). Items are made anew on every call.
- * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/context-menu.ts),
+ * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/context-menu.ts),
  * plus separators, disabled and danger items, and checked items as menuitemcheckbox.
  */
 

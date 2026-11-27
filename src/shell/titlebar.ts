@@ -3,7 +3,7 @@
  * each column (.col-header) reaches the top edge, so together they form the title bar.
  * Pressing an empty part of a strip moves the window (native move loop, so Aero Snap works); a
  * double press toggles maximize. Caption glyphs come from the Windows icon fonts (Segoe Fluent / MDL2).
- * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/titlebar.ts).
+ * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/titlebar.ts).
  */
 
 import { getCurrentWindow } from "@tauri-apps/api/window";

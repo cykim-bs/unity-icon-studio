@@ -1,6 +1,6 @@
 /**
  * Screen texts in Korean and English (i18n/{ko,en}.json; scripts/check-i18n.mjs keeps the keys in step).
- * Adapted from unity-slot-widget src/i18n.ts, MIT, same author.
+ * Adapted from unity-slot-widget src/i18n.ts, MIT.
  */
 import ko from "./i18n/ko.json";
 import en from "./i18n/en.json";

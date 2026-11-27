@@ -1,6 +1,6 @@
 /*
  * App frame: title bar strips, side panel, list and details columns, banner, status bar, popups.
- * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/style.css: grid,
+ * Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/style.css: grid,
  * .col-header, .icon-btn, nav, resizer, caption buttons, banner, status bar, .modal, dialog, settings, menu).
  * Changed: the list takes the free width and the details column on the right is the sized one; the
  * banner spans both; the caption buttons sit in a cluster pinned to the top right so they stay when

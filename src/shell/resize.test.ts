@@ -1,4 +1,4 @@
-// Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT, same author (src/resize.test.ts).
+// Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT (src/resize.test.ts).
 import { describe, expect, it } from "vitest";
 import { BODY_DEFAULT_W, BODY_MIN_W, bodyMaxWidth, resolveBodyWidth } from "./resize";
 

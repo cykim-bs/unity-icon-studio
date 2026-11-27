@@ -1,6 +1,6 @@
 /**
- * Light, dark or follow the system. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT,
- * same author (src/theme/themes.ts shell part: SHELL_TOKENS, applyTheme, registerColorTokens,
+ * Light, dark or follow the system. Adapted from https://github.com/cyKim0115/Frond/ @99d89bc, MIT
+ * (src/theme/themes.ts shell part: SHELL_TOKENS, applyTheme, registerColorTokens,
  * themeTransitionCss; src/main.ts applyEffectiveTheme and toggleTheme). There are no theme files
  * here: the values live in theme/tokens.css and theme/dark.css, and this module only sets
  * `data-theme` on <html> and fades the change.
